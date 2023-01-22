@@ -1,0 +1,14 @@
+.horizontal-stack {
+  display: flex;
+  flex-direction: row;
+  padding: 1rem;
+  column-gap: 0.5rem;
+}
+
+.viewport-card {
+  width: 600px;
+}
+
+.scene-list-card {
+  flex-grow: 1;
+}
