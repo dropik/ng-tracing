@@ -7,6 +7,7 @@ import { Entity } from './entity.model';
 import { Plane } from './plane.model';
 import { RayTracingService } from './ray-tracing.service';
 import { Sphere } from './sphere.model';
+import { getUnitVector } from './utils';
 
 @Component({
   selector: 'app-root',
@@ -52,7 +53,7 @@ export class AppComponent implements OnInit {
     this.entities[lightId] = { name: "Directional Light", components: [light, lightColor]};
 
     const cameraId = this.guid();
-    const camera: Camera = { position: { x: 0, y: 3, z: -10 }, direction: { x: 0, y: -0.5, z: 1 }, sensorWidth: 0.000035, sensorHeight: 0.00024, focalLength: 0.000035 };
+    const camera: Camera = { position: { x: 0, y: 3, z: -10 }, direction: getUnitVector({ x: 0, y: -0.5, z: 1 }), sensorWidth: 35, sensorHeight: 24, focalLength: 35 };
     this.entities[cameraId] = { name: "Main Camera", components: [camera] };
 
     this.secondStart = performance.now();
@@ -67,10 +68,10 @@ export class AppComponent implements OnInit {
       }
 
       const startTime = performance.now();
-      let image = ctx.createImageData(this.CANVAS_WIDTH, this.CANVAS_HEIGHT);
-      image = this._rayTracingService.generateImage(image);
+      const image = this._rayTracingService.generateImage(this.CANVAS_WIDTH, this.CANVAS_HEIGHT, camera, this.entities);
       ctx.putImageData(image, 0, 0);
       const endTime = performance.now();
+
       this.lastFrameTime = endTime - startTime;
       this.framesCount++;
       if (endTime - this.secondStart >= 1000) {
