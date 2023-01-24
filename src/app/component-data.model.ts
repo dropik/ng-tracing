@@ -1,1 +1,3 @@
-export interface ComponentData {}
+export interface ComponentData {
+  entityId: string;
+}

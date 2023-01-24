@@ -1,6 +1,4 @@
-import { ComponentData } from "./component-data.model";
-
-export interface Color extends ComponentData {
+export interface Color {
   r: number;
   g: number;
   b: number;

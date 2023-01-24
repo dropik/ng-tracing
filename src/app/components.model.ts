@@ -1,3 +1,4 @@
+import { Albedo } from "./albedo.model";
 import { Camera } from "./camera.model";
 import { Color } from "./color.model";
 import { Dictionary } from "./dictionary.model";
@@ -11,4 +12,5 @@ export interface Components {
   planes: Dictionary<Plane>;
   spheres: Dictionary<Sphere>;
   colors: Dictionary<Color>;
+  albedos: Dictionary<Albedo>;
 }
