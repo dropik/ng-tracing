@@ -52,10 +52,45 @@ export class RayTracingService {
         // check for collision with spheres
         for (const sphereId in components.spheres) {
           const sphere = components.spheres[sphereId];
+
           const center = vSub(sphere.center, rayOrigin);
           const proj = dot(center, rayDirection);
-          const distanceToCenter = magnitude(center);
-          if (distanceToCenter * distanceToCenter - proj * proj > sphere.radius * sphere.radius) {
+					const d2 = dot(center, center) - proj * proj;
+					const d = Math.sqrt(d2);
+					if (d > sphere.radius) {
+						continue;
+					}
+          const t = proj - Math.sqrt(sphere.radius * sphere.radius - d2);
+					if (t < 0) {
+						continue;
+					}
+
+          let hitPoint = vSum(rayOrigin, vScalarProduct(rayDirection, t));
+          const rDir = getUnitVector(vSub(hitPoint, sphere.center));
+          hitPoint = vSum(hitPoint, vScalarProduct(rDir, 0.000001));
+
+          // check if hit point is lit by light
+          const lightDirection = getUnitVector(vScalarProduct(light.direction, -1));
+          let isLit = true;
+          for (const sphereId in components.spheres) {
+            const sphere = components.spheres[sphereId];
+
+            const center = vSub(sphere.center, hitPoint);
+            const proj = dot(center, lightDirection);
+            const d2 = dot(center, center) - proj * proj;
+            const d = Math.sqrt(d2);
+            if (d > sphere.radius) {
+              continue;
+            }
+            const thc = Math.sqrt(sphere.radius * sphere.radius - d2);
+            const t0 = proj - thc;
+            const t1 = proj + thc;
+            if (t0 > 0 || t1 > 0) {
+              isLit = false;
+              break;
+            }
+          }
+          if (!isLit) {
             continue;
           }
 
