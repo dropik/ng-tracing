@@ -71,7 +71,7 @@ export class AppComponent implements OnInit {
     this.components.albedos[sphere3Id] = sphere3Color;
 
     const lightId = this.guid();
-    const light: DirectionalLight = { entityId: lightId, direction: { x: 0.8, y: -1, z: 0.5 }, intensity: 100 };
+    const light: DirectionalLight = { entityId: lightId, direction: { x: 1, y: -1, z: 1 }, intensity: 100 };
     const lightColor: Albedo = { entityId: lightId, color: { r: 255, g: 255, b: 255 } };
     this.entities[lightId] = { name: "Directional Light" };
     this.components.lights[lightId] = light;

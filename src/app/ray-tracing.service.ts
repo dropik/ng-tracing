@@ -8,7 +8,7 @@ import { DirectionalLight } from './directional-light.model';
 import { Entity } from './entity.model';
 import { Plane } from './plane.model';
 import { Sphere } from './sphere.model';
-import { cMultiply, cross, dot, getUnitVector, magnitude, vMultiply, vSub, vSum } from './utils';
+import { cMultiply, cross, dot, getUnitVector, grayscale, magnitude, vMultiply, vSub, vSum } from './utils';
 import { Vector3 } from './vector3.model';
 
 @Injectable({
@@ -157,7 +157,7 @@ export class RayTracingService {
       return { r: 0, g: 0, b: 0 };
     }
 
-    const angularIntencity = Math.sqrt(Math.max(dot(normal, lightDir), 0));
+    const angularIntencity = Math.sqrt(Math.sqrt(Math.max(dot(normal, lightDir), 0)));
     return cMultiply(albedo.color, angularIntencity);
   }
 }
