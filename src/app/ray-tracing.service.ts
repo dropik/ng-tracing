@@ -8,7 +8,7 @@ import { DirectionalLight } from './directional-light.model';
 import { Entity } from './entity.model';
 import { Plane } from './plane.model';
 import { Sphere } from './sphere.model';
-import { cross, dot, getUnitVector, magnitude, vScalarProduct, vSub, vSum } from './utils';
+import { cMultiply, cross, dot, getUnitVector, magnitude, vMultiply, vSub, vSum } from './utils';
 import { Vector3 } from './vector3.model';
 
 @Injectable({
@@ -37,12 +37,12 @@ export class RayTracingService {
     const yAxis: Vector3 = { x: 0, y: 1, z: 0 };
     const sensorXDirection = getUnitVector(cross(yAxis, camera.direction));
     const sensorYDirection = getUnitVector(cross(camera.direction, sensorXDirection));
-    const focalPosition = vSum(camera.position, vScalarProduct(camera.direction, -focalLengthM));
+    const focalPosition = vSum(camera.position, vMultiply(camera.direction, -focalLengthM));
 
-    const cameraXStep = vScalarProduct(sensorXDirection, sensorWidthM / viewportWidth);
-    const cameraYStep = vScalarProduct(sensorYDirection, -sensorHeightM / viewportHeight);
+    const cameraXStep = vMultiply(sensorXDirection, sensorWidthM / viewportWidth);
+    const cameraYStep = vMultiply(sensorYDirection, -sensorHeightM / viewportHeight);
 
-    let pixelRowStartPosition = vSum(camera.position, vSum(vScalarProduct(sensorXDirection, -sensorWidthM / 2), vScalarProduct(sensorYDirection, sensorHeightM / 2)));
+    let pixelRowStartPosition = vSum(camera.position, vSum(vMultiply(sensorXDirection, -sensorWidthM / 2), vMultiply(sensorYDirection, sensorHeightM / 2)));
     let dataIndex = 0;
 
     for (let i = 0; i < viewportHeight; i++) {
@@ -50,8 +50,8 @@ export class RayTracingService {
       for (let j = 0; j < viewportWidth; j++) {
         const rayDirection = getUnitVector(vSub(rayOrigin, focalPosition));
 
-        const hitId = this._getHitEntityId(rayOrigin, rayDirection, plane, components.spheres, light);
-        const color = this._getPixelColor(hitId, components.albedos);
+        const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, components.spheres, light);
+        const color = this._getPixelColor(hitResult, components.albedos);
 
         rayOrigin = vSum(rayOrigin, cameraXStep);
         data[dataIndex] = color.r;
@@ -66,19 +66,19 @@ export class RayTracingService {
     return image;
   }
 
-  private _getHitEntityId(rayOrigin: Vector3, rayDirection: Vector3, plane: Plane, spheres: Dictionary<Sphere>, light: DirectionalLight): string | undefined {
+  private _getHitEntityId(rayOrigin: Vector3, rayDirection: Vector3, plane: Plane, spheres: Dictionary<Sphere>, light: DirectionalLight): { hitId: string , normal: Vector3, lightDir: Vector3 } | undefined {
     let minHitDistance = Number.MAX_VALUE;
-    let hitSomething = false;
     let hitPoint: Vector3 = { x: 0, y: 0, z: 0 };
     let hitId: string | undefined = undefined;
+    let normal: Vector3 = { x: 0, y: 0, z: 0 };
 
     // check for collision with plane
     const planeDistance = dot(vSub(plane.center, rayOrigin), plane.normal) / dot(rayDirection, plane.normal);
     if (planeDistance > 0) {
       minHitDistance = planeDistance;
-      hitSomething = true;
-      hitPoint = vSum(vSum(rayOrigin, vScalarProduct(rayDirection, planeDistance)), vScalarProduct(plane.normal, 0.000001));
+      hitPoint = vSum(vSum(rayOrigin, vMultiply(rayDirection, planeDistance)), vMultiply(plane.normal, 0.000001));
       hitId = plane.entityId;
+      normal = plane.normal;
     }
 
     // check for collision with spheres
@@ -98,21 +98,21 @@ export class RayTracingService {
       }
 
       minHitDistance = t;
-      hitSomething = true;
-      hitPoint = vSum(rayOrigin, vScalarProduct(rayDirection, t));
+      hitPoint = vSum(rayOrigin, vMultiply(rayDirection, t));
       const rDir = getUnitVector(vSub(hitPoint, sphere.center));
-      hitPoint = vSum(hitPoint, vScalarProduct(rDir, 0.000001));
+      normal = rDir;
+      hitPoint = vSum(hitPoint, vMultiply(rDir, 0.000001));
       hitId = sphere.entityId;
     }
 
-    if (!hitSomething) {
+    if (!hitId) {
       return undefined;
     }
 
-    const lightDirection = getUnitVector(vScalarProduct(light.direction, -1));
+    const lightDir = getUnitVector(vMultiply(light.direction, -1));
 
     // check hit point is obstacled from being lit by plane
-    const planeAsLightObstacleDistance = dot(vSub(plane.center, hitPoint), plane.normal) / dot(lightDirection, plane.normal);
+    const planeAsLightObstacleDistance = dot(vSub(plane.center, hitPoint), plane.normal) / dot(lightDir, plane.normal);
     if (planeAsLightObstacleDistance >= 0) {
       return undefined;
     }
@@ -123,7 +123,7 @@ export class RayTracingService {
       const sphere = spheres[sphereId];
 
       const center = vSub(sphere.center, hitPoint);
-      const proj = dot(center, lightDirection);
+      const proj = dot(center, lightDir);
       const d2 = dot(center, center) - proj * proj;
       const d = Math.sqrt(d2);
       if (d > sphere.radius) {
@@ -142,19 +142,22 @@ export class RayTracingService {
       return undefined;
     }
 
-    return hitId;
+    return  { hitId, normal, lightDir };
   }
 
-  private _getPixelColor(hitId: string | undefined, albedos: Dictionary<Albedo>): Color {
-    if (!hitId) {
+  private _getPixelColor(hitResult: { hitId: string, normal: Vector3, lightDir: Vector3 } | undefined, albedos: Dictionary<Albedo>): Color {
+    if (!hitResult) {
       return { r: 0, g: 0, b: 0 };
     }
+
+    const { hitId, normal, lightDir } = hitResult;
 
     const albedo = albedos[hitId];
     if (!albedo) {
       return { r: 0, g: 0, b: 0 };
     }
 
-    return albedo.color;
+    const angularIntencity = Math.sqrt(Math.max(dot(normal, lightDir), 0));
+    return cMultiply(albedo.color, angularIntencity);
   }
 }

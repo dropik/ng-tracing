@@ -44,7 +44,7 @@ export class AppComponent implements OnInit {
     // composing initial scene
     const planeId = this.guid();
     const plane: Plane = { entityId: planeId, center: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 1, z: 0 } };
-    const planeColor: Albedo = { entityId: planeId, color: { r: 180, g: 180, b: 180 } };
+    const planeColor: Albedo = { entityId: planeId, color: { r: 255, g: 255, b: 255 } };
     this.entities[planeId] = { name: "Floor" };
     this.components.planes[planeId] = plane;
     this.components.albedos[planeId] = planeColor;
@@ -71,7 +71,7 @@ export class AppComponent implements OnInit {
     this.components.albedos[sphere3Id] = sphere3Color;
 
     const lightId = this.guid();
-    const light: DirectionalLight = { entityId: lightId, direction: { x: 1, y: -0.5, z: 1 }, intensity: 100 };
+    const light: DirectionalLight = { entityId: lightId, direction: { x: 0.8, y: -1, z: 0.5 }, intensity: 100 };
     const lightColor: Albedo = { entityId: lightId, color: { r: 255, g: 255, b: 255 } };
     this.entities[lightId] = { name: "Directional Light" };
     this.components.lights[lightId] = light;

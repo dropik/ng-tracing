@@ -1,3 +1,4 @@
+import { Color } from "./color.model";
 import { Vector3 } from "./vector3.model";
 
 export function cross(a: Vector3, b: Vector3): Vector3 {
@@ -16,8 +17,12 @@ export function magnitude(a: Vector3): number {
   return Math.sqrt(dot(a, a));
 }
 
-export function vScalarProduct(a: Vector3, s: number): Vector3 {
+export function vMultiply(a: Vector3, s: number): Vector3 {
   return { x: a.x * s, y: a.y * s, z: a.z * s };
+}
+
+export function cMultiply(a: Color, s: number): Color {
+  return { r: a.r * s, g: a.g * s, b: a.b * s };
 }
 
 export function vSum(a: Vector3, b: Vector3): Vector3 {
@@ -38,5 +43,5 @@ export function vSub(a: Vector3, b: Vector3): Vector3 {
 
 export function getUnitVector(a: Vector3): Vector3 {
   const s = 1 / magnitude(a);
-  return vScalarProduct(a, s);
+  return vMultiply(a, s);
 }
