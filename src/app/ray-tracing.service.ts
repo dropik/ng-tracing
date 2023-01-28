@@ -14,7 +14,7 @@ import { Vector3 } from './vector3.model';
   providedIn: 'root'
 })
 export class RayTracingService {
-  private readonly INDIRECT_RAYS = 1000;
+  private readonly SAMPLES = 2;
 
   public generateImage(viewportWidth: number, viewportHeight: number, components: Components): ImageData {
     const image = new ImageData(viewportWidth, viewportHeight);
@@ -180,31 +180,48 @@ export class RayTracingService {
     let result: Color = { r: 0, g: 0, b: 0 };
 
     // normal is local y axis
-    const xAxis = getUnitVector(cross({ x: 0.00001, y: 1, z: -0.000001 }, normal));
-    const zAxis = getUnitVector(cross(xAxis, normal));
+    const { nt, nb } = this._getNormalCoordinates(normal);
 
-    for (let i = 0; i < this.INDIRECT_RAYS; i++) {
-      const randomRadius = Math.random();
-      const randomSin = Math.random() * 2 - 1;
-      const randomCos = Math.random() * 2 - 1;
+    for (let i = 0; i < this.SAMPLES; i++) {
+      const sample = this._generateLocalSample();
+      const sampleWorld = this._getWorldSample(sample, normal, nt, nb);
 
-      const randomX = randomCos * randomRadius;
-      const randomZ = randomSin * randomRadius;
-      const randomY = Math.sqrt(1 - randomRadius * randomRadius);
-
-      const direction = vSum(vSum(vMultiply(xAxis, randomX), vMultiply(normal, randomY)), vMultiply(zAxis, randomZ));
-      const hitResult = this._getHitEntityId(point, direction, plane, spheres);
+      const hitResult = this._getHitEntityId(point, sampleWorld, plane, spheres);
       if (hitResult) {
         const { hitId, hitPoint, normal: hitNormal } = hitResult;
         const isLitByDirectionalLight = this._checkIsLitByDirectionalLight(hitPoint, light, plane, spheres);
         if (isLitByDirectionalLight) {
           const reflectedIntencity = this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, albedos[hitId].color);
-          result = cSum(result, this._evaluateBRDF(normal, direction, reflectedIntencity, diffuse));
+          result = cSum(result, this._evaluateBRDF(normal, sampleWorld, reflectedIntencity, diffuse));
         }
       }
     }
 
-    result = cMultiply(result, 1.0 / this.INDIRECT_RAYS);
+    result = cMultiply(result, 2 * Math.PI / this.SAMPLES);
     return result;
+  }
+
+  private _getNormalCoordinates(normal: Vector3): { nt: Vector3, nb: Vector3 } {
+    const nt: Vector3 = getUnitVector(cross({ x: Math.random(), y: Math.random(), z: Math.random() }, normal));
+    const nb = cross(nt, normal);
+    return { nt, nb };
+  }
+
+  private _generateLocalSample(): Vector3 {
+    const r1 = Math.random();
+    const r2 = Math.random();
+    const sinTheta = Math.sqrt(1 - r1 * r1);
+    const phi = 2 * Math.PI * r2;
+    const x = sinTheta * Math.cos(phi);
+    const z = sinTheta * Math.sin(phi);
+    return { x: x, y: r1, z: z };
+  }
+
+  private _getWorldSample(sample: Vector3, n: Vector3, nt: Vector3, nb: Vector3): Vector3 {
+    return {
+      x: sample.x * nt.x + sample.y * n.x + sample.z * nb.x,
+      y: sample.x * nt.y + sample.y * n.y + sample.z * nb.y,
+      z: sample.x * nt.z + sample.y * n.z + sample.z * nb.z,
+    };
   }
 }
