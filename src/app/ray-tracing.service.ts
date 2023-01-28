@@ -14,7 +14,8 @@ import { Vector3 } from './vector3.model';
   providedIn: 'root'
 })
 export class RayTracingService {
-  private readonly SAMPLES = 2;
+  private readonly SAMPLES = 64;
+  private readonly BOUNCES = 2;
 
   public generateImage(viewportWidth: number, viewportHeight: number, components: Components): ImageData {
     const image = new ImageData(viewportWidth, viewportHeight);
@@ -55,17 +56,7 @@ export class RayTracingService {
       for (let j = 0; j < viewportWidth; j++) {
         const rayDirection = getUnitVector(vSub(rayOrigin, focalPosition));
 
-        let totalIncomingPower: Color = { r: 0, g: 0, b: 0 };
-
-        const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, components.spheres);
-        if (hitResult) {
-          const { hitId, hitPoint, normal } = hitResult;
-          const isLitByDirectionalLight = this._checkIsLitByDirectionalLight(hitPoint, light, plane, components.spheres);
-          if (isLitByDirectionalLight) {
-            totalIncomingPower = cSum(totalIncomingPower, this._evaluateBRDF(normal, light.lightDir, light.intensityMap, components.albedos[hitId].color));
-          }
-          totalIncomingPower = cSum(totalIncomingPower, this._evaluateIndirectLight(hitPoint, normal, components.albedos[hitId].color, plane, components.spheres, light, components.albedos));
-        }
+        let totalIncomingPower: Color =  this._castRay(rayOrigin, rayDirection, plane, components.spheres, light, components.albedos);
 
         // accepting incoming light by camera
         let acceptedPower = cMultiply(totalIncomingPower, camera.lensArea / camera.shutter * camera.iso);
@@ -168,36 +159,43 @@ export class RayTracingService {
     return cMultiply(cProd(lightIntensity, diffuse), cosTerm);
   }
 
-  private _evaluateIndirectLight(
-    point: Vector3,
-    normal: Vector3,
-    diffuse: Color,
+  private _castRay(
+    rayOrigin: Vector3,
+    rayDirection: Vector3,
     plane: Plane,
     spheres: Dictionary<Sphere>,
     light: DirectionalLight,
-    albedos: Dictionary<Albedo>
+    albedos: Dictionary<Albedo>,
+    bounce = 0
   ): Color {
     let result: Color = { r: 0, g: 0, b: 0 };
 
-    // normal is local y axis
-    const { nt, nb } = this._getNormalCoordinates(normal);
-
-    for (let i = 0; i < this.SAMPLES; i++) {
-      const sample = this._generateLocalSample();
-      const sampleWorld = this._getWorldSample(sample, normal, nt, nb);
-
-      const hitResult = this._getHitEntityId(point, sampleWorld, plane, spheres);
-      if (hitResult) {
-        const { hitId, hitPoint, normal: hitNormal } = hitResult;
-        const isLitByDirectionalLight = this._checkIsLitByDirectionalLight(hitPoint, light, plane, spheres);
-        if (isLitByDirectionalLight) {
-          const reflectedIntencity = this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, albedos[hitId].color);
-          result = cSum(result, this._evaluateBRDF(normal, sampleWorld, reflectedIntencity, diffuse));
-        }
-      }
+    const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, spheres);
+    if (!hitResult) {
+      return result;
     }
 
-    result = cMultiply(result, 2 * Math.PI / this.SAMPLES);
+    const { hitId, hitPoint, normal: hitNormal } = hitResult;
+    if (this._checkIsLitByDirectionalLight(hitPoint, light, plane, spheres)) {
+      result = cSum(result, this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, albedos[hitId].color));
+    }
+
+    if (bounce >= this.BOUNCES) {
+      return result;
+    }
+
+    // normal is local y axis
+    const { nt, nb } = this._getNormalCoordinates(hitNormal);
+    let indirectResult: Color = { r: 0, g: 0, b: 0 };
+    for (let i = 0; i < this.SAMPLES; i++) {
+      const sample = this._generateLocalSample();
+      const sampleWorld = this._getWorldSample(sample, hitNormal, nt, nb);
+
+      const reflectedIntencity = this._castRay(hitPoint, sampleWorld, plane, spheres, light, albedos, bounce + 1);
+      indirectResult = cSum(indirectResult, this._evaluateBRDF(hitNormal, sampleWorld, reflectedIntencity, albedos[hitId].color));
+    }
+
+    result = cSum(result, cMultiply(indirectResult, 2 * Math.PI / this.SAMPLES));
     return result;
   }
 
