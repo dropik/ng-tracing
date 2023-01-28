@@ -5,16 +5,17 @@ import { Color } from './color.model';
 import { Components } from './components.model';
 import { Dictionary } from './dictionary.model';
 import { DirectionalLight } from './directional-light.model';
-import { Entity } from './entity.model';
 import { Plane } from './plane.model';
 import { Sphere } from './sphere.model';
-import { cMax, cMin, cMultiply, cProd, cross, cSum, dot, getUnitVector, vMultiply, vSub, vSum } from './utils';
+import { cMax, cMin, cMultiply, cProd, cross, cSum, dot, getUnitVector, magnitude, vMultiply, vSub, vSum } from './utils';
 import { Vector3 } from './vector3.model';
 
 @Injectable({
   providedIn: 'root'
 })
 export class RayTracingService {
+  private readonly INDIRECT_RAYS = 1000;
+
   public generateImage(viewportWidth: number, viewportHeight: number, components: Components): ImageData {
     const image = new ImageData(viewportWidth, viewportHeight);
     const data = image.data;
@@ -63,6 +64,7 @@ export class RayTracingService {
           if (isLitByDirectionalLight) {
             totalIncomingPower = cSum(totalIncomingPower, this._evaluateBRDF(normal, light.lightDir, light.intensityMap, components.albedos[hitId].color));
           }
+          totalIncomingPower = cSum(totalIncomingPower, this._evaluateIndirectLight(hitPoint, normal, components.albedos[hitId].color, plane, components.spheres, light, components.albedos));
         }
 
         // accepting incoming light by camera
@@ -164,5 +166,45 @@ export class RayTracingService {
   private _evaluateBRDF(normal: Vector3, lightDir: Vector3, lightIntensity: Color, diffuse: Color): Color {
     const cosTerm = Math.max(dot(normal, lightDir), 0);
     return cMultiply(cProd(lightIntensity, diffuse), cosTerm);
+  }
+
+  private _evaluateIndirectLight(
+    point: Vector3,
+    normal: Vector3,
+    diffuse: Color,
+    plane: Plane,
+    spheres: Dictionary<Sphere>,
+    light: DirectionalLight,
+    albedos: Dictionary<Albedo>
+  ): Color {
+    let result: Color = { r: 0, g: 0, b: 0 };
+
+    // normal is local y axis
+    const xAxis = getUnitVector(cross({ x: 0.00001, y: 1, z: -0.000001 }, normal));
+    const zAxis = getUnitVector(cross(xAxis, normal));
+
+    for (let i = 0; i < this.INDIRECT_RAYS; i++) {
+      const randomRadius = Math.random();
+      const randomSin = Math.random() * 2 - 1;
+      const randomCos = Math.random() * 2 - 1;
+
+      const randomX = randomCos * randomRadius;
+      const randomZ = randomSin * randomRadius;
+      const randomY = Math.sqrt(1 - randomRadius * randomRadius);
+
+      const direction = vSum(vSum(vMultiply(xAxis, randomX), vMultiply(normal, randomY)), vMultiply(zAxis, randomZ));
+      const hitResult = this._getHitEntityId(point, direction, plane, spheres);
+      if (hitResult) {
+        const { hitId, hitPoint, normal: hitNormal } = hitResult;
+        const isLitByDirectionalLight = this._checkIsLitByDirectionalLight(hitPoint, light, plane, spheres);
+        if (isLitByDirectionalLight) {
+          const reflectedIntencity = this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, albedos[hitId].color);
+          result = cSum(result, this._evaluateBRDF(normal, direction, reflectedIntencity, diffuse));
+        }
+      }
+    }
+
+    result = cMultiply(result, 1.0 / this.INDIRECT_RAYS);
+    return result;
   }
 }

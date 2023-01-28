@@ -82,9 +82,9 @@ export class AppComponent implements OnInit {
       sensorWidth: 35,
       sensorHeight: 24,
       focalLength: 35,
-      aperture: 12,
+      aperture: 16,
       shutter: 1200,
-      iso: 300,
+      iso: 500,
       lensArea: 0,
     };
     this.entities[cameraId] = { name: "Main Camera" };
