@@ -8,14 +8,14 @@ import { DirectionalLight } from './directional-light.model';
 import { Entity } from './entity.model';
 import { Plane } from './plane.model';
 import { Sphere } from './sphere.model';
-import { cMax, cMin, cMultiply, cProd, cross, dot, getUnitVector, vMultiply, vSub, vSum } from './utils';
+import { cMax, cMin, cMultiply, cProd, cross, cSum, dot, getUnitVector, vMultiply, vSub, vSum } from './utils';
 import { Vector3 } from './vector3.model';
 
 @Injectable({
   providedIn: 'root'
 })
 export class RayTracingService {
-  public generateImage(viewportWidth: number, viewportHeight: number, entities: Dictionary<Entity>, components: Components): ImageData {
+  public generateImage(viewportWidth: number, viewportHeight: number, components: Components): ImageData {
     const image = new ImageData(viewportWidth, viewportHeight);
     const data = image.data;
 
@@ -35,6 +35,9 @@ export class RayTracingService {
     const focalLengthM = camera.focalLength / 1000;
     camera.lensArea = Math.PI * Math.pow(focalLengthM / 2.0 / camera.aperture, 2);
 
+    light.lightDir = getUnitVector(vMultiply(light.direction, -1));
+    light.intensityMap = cMultiply({ r: 1, g: 1, b: 1}, light.intensity / 3);
+
     const yAxis: Vector3 = { x: 0, y: 1, z: 0 };
     const sensorXDirection = getUnitVector(cross(yAxis, camera.direction));
     const sensorYDirection = getUnitVector(cross(camera.direction, sensorXDirection));
@@ -51,8 +54,21 @@ export class RayTracingService {
       for (let j = 0; j < viewportWidth; j++) {
         const rayDirection = getUnitVector(vSub(rayOrigin, focalPosition));
 
-        const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, components.spheres, light);
-        const color = this._getPixelColor(hitResult, components.albedos, light.intensity, camera);
+        let totalIncomingPower: Color = { r: 0, g: 0, b: 0 };
+
+        const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, components.spheres);
+        if (hitResult) {
+          const { hitId, hitPoint, normal } = hitResult;
+          const isLitByDirectionalLight = this._checkIsLitByDirectionalLight(hitPoint, light, plane, components.spheres);
+          if (isLitByDirectionalLight) {
+            totalIncomingPower = cSum(totalIncomingPower, this._evaluateBRDF(normal, light.lightDir, light.intensityMap, components.albedos[hitId].color));
+          }
+        }
+
+        // accepting incoming light by camera
+        let acceptedPower = cMultiply(totalIncomingPower, camera.lensArea / camera.shutter * camera.iso);
+        acceptedPower = cMin(cMax(acceptedPower, 0), 0.0001);
+        const color = cProd({ r: 255, g: 255, b: 255 }, cMultiply(acceptedPower, 10000));
 
         rayOrigin = vSum(rayOrigin, cameraXStep);
         data[dataIndex] = color.r;
@@ -67,7 +83,7 @@ export class RayTracingService {
     return image;
   }
 
-  private _getHitEntityId(rayOrigin: Vector3, rayDirection: Vector3, plane: Plane, spheres: Dictionary<Sphere>, light: DirectionalLight): { hitId: string , normal: Vector3, lightDir: Vector3 } | undefined {
+  private _getHitEntityId(rayOrigin: Vector3, rayDirection: Vector3, plane: Plane, spheres: Dictionary<Sphere>): { hitId: string, hitPoint: Vector3, normal: Vector3 } | undefined {
     let minHitDistance = Number.MAX_VALUE;
     let hitPoint: Vector3 = { x: 0, y: 0, z: 0 };
     let hitId: string | undefined = undefined;
@@ -110,12 +126,14 @@ export class RayTracingService {
       return undefined;
     }
 
-    const lightDir = getUnitVector(vMultiply(light.direction, -1));
+    return  { hitId, hitPoint, normal };
+  }
 
+  private _checkIsLitByDirectionalLight(hitPoint: Vector3, light: DirectionalLight, plane: Plane, spheres: Dictionary<Sphere>): boolean {
     // check hit point is obstacled from being lit by plane
-    const planeAsLightObstacleDistance = dot(vSub(plane.center, hitPoint), plane.normal) / dot(lightDir, plane.normal);
+    const planeAsLightObstacleDistance = dot(vSub(plane.center, hitPoint), plane.normal) / dot(light.lightDir, plane.normal);
     if (planeAsLightObstacleDistance >= 0) {
-      return undefined;
+      return false;
     }
 
     // check if hit point is obstacled from being lit by spheres
@@ -124,7 +142,7 @@ export class RayTracingService {
       const sphere = spheres[sphereId];
 
       const center = vSub(sphere.center, hitPoint);
-      const proj = dot(center, lightDir);
+      const proj = dot(center, light.lightDir);
       const d2 = dot(center, center) - proj * proj;
       const d = Math.sqrt(d2);
       if (d > sphere.radius) {
@@ -139,29 +157,12 @@ export class RayTracingService {
       }
     }
 
-    if (!isLit) {
-      return undefined;
-    }
-
-    return  { hitId, normal, lightDir };
+    return isLit;
   }
 
-  private _getPixelColor(hitResult: { hitId: string, normal: Vector3, lightDir: Vector3 } | undefined, albedos: Dictionary<Albedo>, lightIntencity: number, camera: Camera): Color {
-    if (!hitResult) {
-      return { r: 0, g: 0, b: 0 };
-    }
-
-    const { hitId, normal, lightDir } = hitResult;
-
-    const diffuse = albedos[hitId];
-    if (!diffuse) {
-      return { r: 0, g: 0, b: 0 };
-    }
-
+  // BRDF for given incoming light
+  private _evaluateBRDF(normal: Vector3, lightDir: Vector3, lightIntensity: Color, diffuse: Color): Color {
     const cosTerm = Math.max(dot(normal, lightDir), 0);
-    const lights: Color = cMultiply({ r: 1, g: 1, b: 1 }, lightIntencity / 3);
-    let incomingPower = cMultiply(cProd(lights, diffuse.color), cosTerm * camera.lensArea / camera.shutter * camera.iso);
-    incomingPower = cMin(cMax(incomingPower, 0), 0.0001);
-    return cProd({ r: 255, g: 255, b: 255 }, cMultiply(incomingPower, 10000));
+    return cMultiply(cProd(lightIntensity, diffuse), cosTerm);
   }
 }

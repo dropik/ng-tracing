@@ -1,7 +1,6 @@
 import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
 import { Albedo } from './albedo.model';
 import { Camera } from './camera.model';
-import { Color } from './color.model';
 import { Components } from './components.model';
 import { Dictionary } from './dictionary.model';
 import { DirectionalLight } from './directional-light.model';
@@ -71,7 +70,7 @@ export class AppComponent implements OnInit {
     this.components.albedos[sphere3Id] = sphere3Color;
 
     const lightId = this.guid();
-    const light: DirectionalLight = { entityId: lightId, direction: { x: 1, y: -1, z: 1 }, intensity: 1000 };
+    const light: DirectionalLight = { entityId: lightId, direction: { x: 1, y: -1, z: 1 }, intensity: 1000, intensityMap: { r: 0, g: 0, b: 0 }, lightDir: { x: 0, y: 0, z: 0 } };
     this.entities[lightId] = { name: "Directional Light" };
     this.components.lights[lightId] = light;
 
@@ -103,7 +102,7 @@ export class AppComponent implements OnInit {
       }
 
       const startTime = performance.now();
-      const image = this._rayTracingService.generateImage(this.CANVAS_WIDTH, this.CANVAS_HEIGHT, this.entities, this.components);
+      const image = this._rayTracingService.generateImage(this.CANVAS_WIDTH, this.CANVAS_HEIGHT, this.components);
       ctx.putImageData(image, 0, 0);
       const endTime = performance.now();
 

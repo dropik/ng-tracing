@@ -25,6 +25,10 @@ export function cMultiply(a: Color, s: number): Color {
   return { r: a.r * s, g: a.g * s, b: a.b * s };
 }
 
+export function cSum(a: Color, b: Color): Color {
+  return { r: a.r + b.r, g: a.g + b.g, b: a.b + b.b };
+}
+
 export function cProd(a: Color, b: Color): Color {
   return { r: a.r * b.r, g: a.g * b.g, b: a.b * b.b };
 }
