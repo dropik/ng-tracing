@@ -8,7 +8,7 @@ import { DirectionalLight } from './directional-light.model';
 import { Entity } from './entity.model';
 import { Plane } from './plane.model';
 import { Sphere } from './sphere.model';
-import { cMultiply, cross, dot, getUnitVector, grayscale, magnitude, vMultiply, vSub, vSum } from './utils';
+import { cMax, cMin, cMultiply, cProd, cross, dot, getUnitVector, vMultiply, vSub, vSum } from './utils';
 import { Vector3 } from './vector3.model';
 
 @Injectable({
@@ -30,9 +30,10 @@ export class RayTracingService {
     const light = components.lights[Object.keys(components.lights)[0]];
     const plane = components.planes[Object.keys(components.planes)[0]];
 
-    const sensorWidthM = camera.sensorWidth / 1000000;
-    const sensorHeightM = camera.sensorHeight / 1000000;
-    const focalLengthM = camera.focalLength / 1000000;
+    const sensorWidthM = camera.sensorWidth / 1000;
+    const sensorHeightM = camera.sensorHeight / 1000;
+    const focalLengthM = camera.focalLength / 1000;
+    camera.lensArea = Math.PI * Math.pow(focalLengthM / 2.0 / camera.aperture, 2);
 
     const yAxis: Vector3 = { x: 0, y: 1, z: 0 };
     const sensorXDirection = getUnitVector(cross(yAxis, camera.direction));
@@ -51,7 +52,7 @@ export class RayTracingService {
         const rayDirection = getUnitVector(vSub(rayOrigin, focalPosition));
 
         const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, components.spheres, light);
-        const color = this._getPixelColor(hitResult, components.albedos);
+        const color = this._getPixelColor(hitResult, components.albedos, light.intensity, camera);
 
         rayOrigin = vSum(rayOrigin, cameraXStep);
         data[dataIndex] = color.r;
@@ -145,19 +146,22 @@ export class RayTracingService {
     return  { hitId, normal, lightDir };
   }
 
-  private _getPixelColor(hitResult: { hitId: string, normal: Vector3, lightDir: Vector3 } | undefined, albedos: Dictionary<Albedo>): Color {
+  private _getPixelColor(hitResult: { hitId: string, normal: Vector3, lightDir: Vector3 } | undefined, albedos: Dictionary<Albedo>, lightIntencity: number, camera: Camera): Color {
     if (!hitResult) {
       return { r: 0, g: 0, b: 0 };
     }
 
     const { hitId, normal, lightDir } = hitResult;
 
-    const albedo = albedos[hitId];
-    if (!albedo) {
+    const diffuse = albedos[hitId];
+    if (!diffuse) {
       return { r: 0, g: 0, b: 0 };
     }
 
-    const angularIntencity = Math.sqrt(Math.sqrt(Math.max(dot(normal, lightDir), 0)));
-    return cMultiply(albedo.color, angularIntencity);
+    const cosTerm = Math.max(dot(normal, lightDir), 0);
+    const lights: Color = cMultiply({ r: 1, g: 1, b: 1 }, lightIntencity / 3);
+    let incomingPower = cMultiply(cProd(lights, diffuse.color), cosTerm * camera.lensArea / camera.shutter * camera.iso);
+    incomingPower = cMin(cMax(incomingPower, 0), 0.0001);
+    return cProd({ r: 255, g: 255, b: 255 }, cMultiply(incomingPower, 10000));
   }
 }

@@ -7,4 +7,8 @@ export interface Camera extends ComponentData {
   sensorWidth: number;
   sensorHeight: number;
   focalLength: number;
+  aperture: number;
+  shutter: number;
+  iso: number;
+  lensArea: number;
 }
