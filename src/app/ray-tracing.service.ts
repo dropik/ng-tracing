@@ -57,7 +57,8 @@ export class RayTracingService {
     camera.lensArea = Math.PI * Math.pow(focalLengthM / 2.0 / camera.aperture, 2);
 
     light.lightDir = getUnitVector(vMultiply(light.direction, -1));
-    light.intensityMap = cMultiply({ r: 1, g: 1, b: 1}, light.intensity / 3);
+    light.angleRadians = light.diskAngle * Math.PI / 180.0;
+    light.intensityMap = cMultiply({ r: 1, g: 1, b: 1}, light.intensity / 3 * light.angleRadians);
 
     const yAxis: Vector3 = { x: 0, y: 1, z: 0 };
     const sensorXDirection = getUnitVector(cross(yAxis, camera.direction));
@@ -86,8 +87,8 @@ export class RayTracingService {
 
         // accepting incoming light by camera
         let acceptedPower = cMultiply(totalPower, camera.lensArea / camera.shutter * camera.iso);
-        acceptedPower = cMin(cMax(acceptedPower, 0), 0.0001);
-        const color = cProd({ r: 255, g: 255, b: 255 }, cMultiply(acceptedPower, 10000));
+        acceptedPower = cMin(cMax(acceptedPower, 0), 0.000001);
+        const color = cProd({ r: 255, g: 255, b: 255 }, cMultiply(acceptedPower, 1000000));
 
         data[dataIndex] = color.r;
         data[dataIndex + 1] = color.g;
@@ -102,6 +103,49 @@ export class RayTracingService {
     }
 
     return image;
+  }
+
+  // recursively cast rays until bounces limit reached
+  private _castRay(
+    rayOrigin: Vector3,
+    rayDirection: Vector3,
+    plane: Plane,
+    spheres: Dictionary<Sphere>,
+    light: DirectionalLight,
+    albedos: Dictionary<Albedo>,
+    bounce = 0
+  ): Color {
+    let result: Color = { r: 0, g: 0, b: 0 };
+
+    const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, spheres);
+    if (!hitResult) {
+      return result;
+    }
+
+    const { hitId, hitPoint, normal: hitNormal } = hitResult;
+    const diffuse = albedos[hitId].color;
+    const lightDirectionSample = this._generateLightDirectionSample(light);
+    const lightDirectionCoordinates = this._getNormalCoordinates(light.direction);
+    const ldWorldSample = this._getWorldSample(lightDirectionSample, light.lightDir, lightDirectionCoordinates.nt, lightDirectionCoordinates.nb);
+    if (this._checkIsLitByDirectionalLight(hitPoint, ldWorldSample, plane, spheres)) {
+      result = cSum(result, this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, diffuse));
+    }
+
+    if (bounce >= this.BOUNCES) {
+      return result;
+    }
+
+    // normal is local y axis
+    const { nt, nb } = this._getNormalCoordinates(hitNormal);
+    let indirectResult: Color = { r: 0, g: 0, b: 0 };
+    const sample = this._generateLocalSample();
+    const sampleWorld = this._getWorldSample(sample, hitNormal, nt, nb);
+
+    const reflectedIntencity = this._castRay(hitPoint, sampleWorld, plane, spheres, light, albedos, bounce + 1);
+    indirectResult = cSum(indirectResult, this._evaluateBRDF(hitNormal, sampleWorld, reflectedIntencity, diffuse));
+
+    result = cSum(result, cMultiply(indirectResult, 2 * Math.PI));
+    return result;
   }
 
   private _getHitEntityId(rayOrigin: Vector3, rayDirection: Vector3, plane: Plane, spheres: Dictionary<Sphere>): { hitId: string, hitPoint: Vector3, normal: Vector3 } | undefined {
@@ -150,9 +194,9 @@ export class RayTracingService {
     return  { hitId, hitPoint, normal };
   }
 
-  private _checkIsLitByDirectionalLight(hitPoint: Vector3, light: DirectionalLight, plane: Plane, spheres: Dictionary<Sphere>): boolean {
+  private _checkIsLitByDirectionalLight(hitPoint: Vector3, lightDir: Vector3, plane: Plane, spheres: Dictionary<Sphere>): boolean {
     // check hit point is obstacled from being lit by plane
-    const planeAsLightObstacleDistance = dot(vSub(plane.center, hitPoint), plane.normal) / dot(light.lightDir, plane.normal);
+    const planeAsLightObstacleDistance = dot(vSub(plane.center, hitPoint), plane.normal) / dot(lightDir, plane.normal);
     if (planeAsLightObstacleDistance >= 0) {
       return false;
     }
@@ -163,7 +207,7 @@ export class RayTracingService {
       const sphere = spheres[sphereId];
 
       const center = vSub(sphere.center, hitPoint);
-      const proj = dot(center, light.lightDir);
+      const proj = dot(center, lightDir);
       const d2 = dot(center, center) - proj * proj;
       const d = Math.sqrt(d2);
       if (d > sphere.radius) {
@@ -187,45 +231,6 @@ export class RayTracingService {
     return cMultiply(cProd(lightIntensity, diffuse), cosTerm);
   }
 
-  private _castRay(
-    rayOrigin: Vector3,
-    rayDirection: Vector3,
-    plane: Plane,
-    spheres: Dictionary<Sphere>,
-    light: DirectionalLight,
-    albedos: Dictionary<Albedo>,
-    bounce = 0
-  ): Color {
-    let result: Color = { r: 0, g: 0, b: 0 };
-
-    const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, spheres);
-    if (!hitResult) {
-      return result;
-    }
-
-    const { hitId, hitPoint, normal: hitNormal } = hitResult;
-    const diffuse = albedos[hitId].color;
-    if (this._checkIsLitByDirectionalLight(hitPoint, light, plane, spheres)) {
-      result = cSum(result, this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, diffuse));
-    }
-
-    if (bounce >= this.BOUNCES) {
-      return result;
-    }
-
-    // normal is local y axis
-    const { nt, nb } = this._getNormalCoordinates(hitNormal);
-    let indirectResult: Color = { r: 0, g: 0, b: 0 };
-    const sample = this._generateLocalSample();
-    const sampleWorld = this._getWorldSample(sample, hitNormal, nt, nb);
-
-    const reflectedIntencity = this._castRay(hitPoint, sampleWorld, plane, spheres, light, albedos, bounce + 1);
-    indirectResult = cSum(indirectResult, this._evaluateBRDF(hitNormal, sampleWorld, reflectedIntencity, diffuse));
-
-    result = cSum(result, cMultiply(indirectResult, 2 * Math.PI));
-    return result;
-  }
-
   private _getNormalCoordinates(normal: Vector3): { nt: Vector3, nb: Vector3 } {
     const nt: Vector3 = getUnitVector(cross({ x: Math.random(), y: Math.random(), z: Math.random() }, normal));
     const nb = cross(nt, normal);
@@ -233,13 +238,25 @@ export class RayTracingService {
   }
 
   private _generateLocalSample(): Vector3 {
-    const r1 = Math.random();
+    const r1 = Math.random();     // cosTheta
     const r2 = Math.random();
     const sinTheta = Math.sqrt(1 - r1 * r1);
     const phi = 2 * Math.PI * r2;
     const x = sinTheta * Math.cos(phi);
     const z = sinTheta * Math.sin(phi);
     return { x: x, y: r1, z: z };
+  }
+
+  private _generateLightDirectionSample(light: DirectionalLight): Vector3 {
+    const r1 = Math.random();
+    const r2 = Math.random();
+    const halfAngleCos = Math.cos(light.angleRadians / 2);
+    const y = r1 * (1 - halfAngleCos) + halfAngleCos;
+    const sinTheta = Math.sqrt(1 - y * y);
+    const phi = (Math.PI - light.angleRadians) / 2 + r2 * light.angleRadians;
+    const x = sinTheta * Math.cos(phi);
+    const z = sinTheta * Math.sin(phi);
+    return { x, y, z };
   }
 
   private _getWorldSample(sample: Vector3, n: Vector3, nt: Vector3, nb: Vector3): Vector3 {

@@ -7,4 +7,6 @@ export interface DirectionalLight extends ComponentData {
   intensity: number;
   intensityMap: Color;
   lightDir: Vector3;
+  diskAngle: number;
+  angleRadians: number;
 }

@@ -73,7 +73,15 @@ export class AppComponent implements OnInit {
     this.components.albedos[sphere3Id] = sphere3Color;
 
     const lightId = this.guid();
-    const light: DirectionalLight = { entityId: lightId, direction: { x: 1, y: -1, z: 1 }, intensity: 1000, intensityMap: { r: 0, g: 0, b: 0 }, lightDir: { x: 0, y: 0, z: 0 } };
+    const light: DirectionalLight = {
+      entityId: lightId,
+      direction: { x: 1, y: -1, z: 1 },
+      intensity: 1000,
+      intensityMap: { r: 0, g: 0, b: 0 },
+      lightDir: { x: 0, y: 0, z: 0 },
+      diskAngle: 3,
+      angleRadians: 0,
+    };
     this.entities[lightId] = { name: "Directional Light" };
     this.components.lights[lightId] = light;
 
@@ -86,8 +94,8 @@ export class AppComponent implements OnInit {
       sensorHeight: 24,
       focalLength: 35,
       aperture: 16,
-      shutter: 1200,
-      iso: 500,
+      shutter: 1400,
+      iso: 100,
       lensArea: 0,
     };
     this.entities[cameraId] = { name: "Main Camera" };
