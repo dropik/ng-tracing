@@ -7,18 +7,37 @@ import { Dictionary } from './dictionary.model';
 import { DirectionalLight } from './directional-light.model';
 import { Plane } from './plane.model';
 import { Sphere } from './sphere.model';
-import { cMax, cMin, cMultiply, cProd, cross, cSum, dot, getUnitVector, magnitude, vMultiply, vSub, vSum } from './utils';
+import { cMax, cMin, cMultiply, cProd, cross, cSum, dot, getUnitVector, vMultiply, vSub, vSum } from './utils';
 import { Vector3 } from './vector3.model';
 
 @Injectable({
   providedIn: 'root'
 })
 export class RayTracingService {
-  private readonly SAMPLES = 64;
-  private readonly BOUNCES = 2;
+  private readonly BOUNCES = 10;
 
-  public generateImage(viewportWidth: number, viewportHeight: number, components: Components): ImageData {
-    const image = new ImageData(viewportWidth, viewportHeight);
+	private _powersBuffer: Float64Array = new Float64Array();
+  private _viewportWidth: number = 0;
+  private _viewportHeight: number = 0;
+
+  public setViewport(viewportWidth: number, viewportHeight: number): void {
+    this._viewportWidth = viewportWidth;
+    this._viewportHeight = viewportHeight;
+
+    this._powersBuffer = new Float64Array(viewportWidth * viewportHeight * 3);
+    let id = 0;
+    for (let i = 0; i < viewportHeight; i++) {
+      for (let j = 0; j < viewportWidth; j++) {
+        this._powersBuffer[id] = 0;
+        this._powersBuffer[id + 1] = 0;
+        this._powersBuffer[id + 2] = 0;
+        id += 3;
+      }
+    }
+  }
+
+  public getNewSample(samples: number, components: Components): ImageData {
+    const image = new ImageData(this._viewportWidth, this._viewportHeight);
     const data = image.data;
 
     if (Object.keys(components.lights).length === 0) {
@@ -45,30 +64,39 @@ export class RayTracingService {
     const sensorYDirection = getUnitVector(cross(camera.direction, sensorXDirection));
     const focalPosition = vSum(camera.position, vMultiply(camera.direction, -focalLengthM));
 
-    const cameraXStep = vMultiply(sensorXDirection, sensorWidthM / viewportWidth);
-    const cameraYStep = vMultiply(sensorYDirection, -sensorHeightM / viewportHeight);
+    const cameraXStep = vMultiply(sensorXDirection, sensorWidthM / this._viewportWidth);
+    const cameraYStep = vMultiply(sensorYDirection, -sensorHeightM / this._viewportHeight);
 
     let pixelRowStartPosition = vSum(camera.position, vSum(vMultiply(sensorXDirection, -sensorWidthM / 2), vMultiply(sensorYDirection, sensorHeightM / 2)));
     let dataIndex = 0;
+    let bufIndex = 0;
 
-    for (let i = 0; i < viewportHeight; i++) {
+    for (let i = 0; i < this._viewportHeight; i++) {
       let rayOrigin = pixelRowStartPosition;
-      for (let j = 0; j < viewportWidth; j++) {
+      for (let j = 0; j < this._viewportWidth; j++) {
         const rayDirection = getUnitVector(vSub(rayOrigin, focalPosition));
 
-        let totalIncomingPower: Color =  this._castRay(rayOrigin, rayDirection, plane, components.spheres, light, components.albedos);
+        const samplePower = this._castRay(rayOrigin, rayDirection, plane, components.spheres, light, components.albedos);
+        const prevPower: Color = { r: this._powersBuffer[bufIndex], g: this._powersBuffer[bufIndex + 1], b: this._powersBuffer[bufIndex + 2] };
+				const powerSum = cSum(cMultiply(prevPower, samples - 1), samplePower);
+				const totalPower = cMultiply(powerSum, 1.0 / samples);
+        this._powersBuffer[bufIndex] = totalPower.r;
+        this._powersBuffer[bufIndex + 1] = totalPower.g;
+        this._powersBuffer[bufIndex + 2] = totalPower.b;
 
         // accepting incoming light by camera
-        let acceptedPower = cMultiply(totalIncomingPower, camera.lensArea / camera.shutter * camera.iso);
+        let acceptedPower = cMultiply(totalPower, camera.lensArea / camera.shutter * camera.iso);
         acceptedPower = cMin(cMax(acceptedPower, 0), 0.0001);
         const color = cProd({ r: 255, g: 255, b: 255 }, cMultiply(acceptedPower, 10000));
 
-        rayOrigin = vSum(rayOrigin, cameraXStep);
         data[dataIndex] = color.r;
         data[dataIndex + 1] = color.g;
         data[dataIndex + 2] = color.b;
         data[dataIndex + 3] = 255;
+
+        rayOrigin = vSum(rayOrigin, cameraXStep);
         dataIndex += 4;
+        bufIndex += 3;
       }
       pixelRowStartPosition = vSum(pixelRowStartPosition, cameraYStep);
     }
@@ -176,8 +204,9 @@ export class RayTracingService {
     }
 
     const { hitId, hitPoint, normal: hitNormal } = hitResult;
+    const diffuse = albedos[hitId].color;
     if (this._checkIsLitByDirectionalLight(hitPoint, light, plane, spheres)) {
-      result = cSum(result, this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, albedos[hitId].color));
+      result = cSum(result, this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, diffuse));
     }
 
     if (bounce >= this.BOUNCES) {
@@ -187,15 +216,13 @@ export class RayTracingService {
     // normal is local y axis
     const { nt, nb } = this._getNormalCoordinates(hitNormal);
     let indirectResult: Color = { r: 0, g: 0, b: 0 };
-    for (let i = 0; i < this.SAMPLES; i++) {
-      const sample = this._generateLocalSample();
-      const sampleWorld = this._getWorldSample(sample, hitNormal, nt, nb);
+    const sample = this._generateLocalSample();
+    const sampleWorld = this._getWorldSample(sample, hitNormal, nt, nb);
 
-      const reflectedIntencity = this._castRay(hitPoint, sampleWorld, plane, spheres, light, albedos, bounce + 1);
-      indirectResult = cSum(indirectResult, this._evaluateBRDF(hitNormal, sampleWorld, reflectedIntencity, albedos[hitId].color));
-    }
+    const reflectedIntencity = this._castRay(hitPoint, sampleWorld, plane, spheres, light, albedos, bounce + 1);
+    indirectResult = cSum(indirectResult, this._evaluateBRDF(hitNormal, sampleWorld, reflectedIntencity, diffuse));
 
-    result = cSum(result, cMultiply(indirectResult, 2 * Math.PI / this.SAMPLES));
+    result = cSum(result, cMultiply(indirectResult, 2 * Math.PI));
     return result;
   }
 

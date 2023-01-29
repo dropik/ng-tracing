@@ -18,6 +18,7 @@ import { diffuseMap, getUnitVector } from './utils';
 export class AppComponent implements OnInit {
   public readonly CANVAS_WIDTH = 560;
   public readonly CANVAS_HEIGHT = 384;
+  public readonly SAMPLES_LIMIT = 2000000;
 
   public entities: Dictionary<Entity> = {};
   public components: Components = {
@@ -28,8 +29,10 @@ export class AppComponent implements OnInit {
     colors: {},
     albedos: {},
   };
-  public lastFrameTime = 0;
+  public lastSampleTime = 0;
   public lastFps = 0;
+  public samples = 0;
+  public renderTime = 0;
 
   private secondStart = performance.now();
   private framesCount = 0;
@@ -90,8 +93,14 @@ export class AppComponent implements OnInit {
     this.entities[cameraId] = { name: "Main Camera" };
     this.components.cameras[cameraId] = camera;
 
+    this._rayTracingService.setViewport(this.CANVAS_WIDTH, this.CANVAS_HEIGHT);
+
     this.secondStart = performance.now();
-    setInterval(() => {
+    const interval = setInterval(() => {
+      if (this.samples >= this.SAMPLES_LIMIT - 1) {
+        clearInterval(interval);
+      }
+
       if (!this.canvas.nativeElement) {
         return;
       }
@@ -102,11 +111,13 @@ export class AppComponent implements OnInit {
       }
 
       const startTime = performance.now();
-      const image = this._rayTracingService.generateImage(this.CANVAS_WIDTH, this.CANVAS_HEIGHT, this.components);
+      const image = this._rayTracingService.getNewSample(this.samples + 1, this.components);
       ctx.putImageData(image, 0, 0);
       const endTime = performance.now();
 
-      this.lastFrameTime = endTime - startTime;
+      this.samples++;
+      this.lastSampleTime = endTime - startTime;
+      this.renderTime += this.lastSampleTime / 1000;
       this.framesCount++;
       if (endTime - this.secondStart >= 1000) {
         this.lastFps = this.framesCount;

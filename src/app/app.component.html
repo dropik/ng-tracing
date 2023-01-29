@@ -2,7 +2,7 @@
   <mat-card>
     <mat-card-header>
       <mat-card-title>Viewport</mat-card-title>
-      <mat-card-subtitle>FPS: {{ lastFps }} | Last frame: {{ lastFrameTime | number: '1.1-1' }}ms</mat-card-subtitle>
+      <mat-card-subtitle>FPS: {{ lastFps }} | Last sample: {{ lastSampleTime | number: '1.1-1' }}ms | Samples: {{ samples }} | Render time: {{ renderTime | number: '1.1-1' }}s</mat-card-subtitle>
     </mat-card-header>
     <canvas mat-card-image #viewport [width]="CANVAS_WIDTH" [height]="CANVAS_HEIGHT"></canvas>
   </mat-card>
