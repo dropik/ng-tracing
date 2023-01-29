@@ -10,5 +10,6 @@ export interface Camera extends ComponentData {
   aperture: number;
   shutter: number;
   iso: number;
+  focus: number;
   lensArea: number;
 }

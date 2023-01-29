@@ -55,6 +55,7 @@ export class RayTracingService {
     const sensorHeightM = camera.sensorHeight / 1000;
     const focalLengthM = camera.focalLength / 1000;
     camera.lensArea = Math.PI * Math.pow(focalLengthM / 2.0 / camera.aperture, 2);
+    const cameraSamplePdf = camera.aperture / Math.PI / focalLengthM;
 
     light.lightDir = getUnitVector(vMultiply(light.direction, -1));
     light.angleRadians = light.diskAngle * Math.PI / 180.0;
@@ -63,23 +64,29 @@ export class RayTracingService {
     const yAxis: Vector3 = { x: 0, y: 1, z: 0 };
     const sensorXDirection = getUnitVector(cross(yAxis, camera.direction));
     const sensorYDirection = getUnitVector(cross(camera.direction, sensorXDirection));
-    const focalPosition = vSum(camera.position, vMultiply(camera.direction, -focalLengthM));
 
     const cameraXStep = vMultiply(sensorXDirection, sensorWidthM / this._viewportWidth);
     const cameraYStep = vMultiply(sensorYDirection, -sensorHeightM / this._viewportHeight);
 
     let pixelRowStartPosition = vSum(camera.position, vSum(vMultiply(sensorXDirection, -sensorWidthM / 2), vMultiply(sensorYDirection, sensorHeightM / 2)));
-    let dataIndex = 0;
-    let bufIndex = 0;
+    pixelRowStartPosition = vSum(pixelRowStartPosition, vMultiply(camera.direction, -focalLengthM));
+    let dataIndex = this._viewportWidth * this._viewportHeight * 4 - 4;
+    let bufIndex = this._viewportWidth * this._viewportHeight * 3 - 3;
 
-    for (let i = 0; i < this._viewportHeight; i++) {
+    for (let i = this._viewportHeight - 1; i >= 0; i--) {
       let rayOrigin = pixelRowStartPosition;
-      for (let j = 0; j < this._viewportWidth; j++) {
-        const rayDirection = getUnitVector(vSub(rayOrigin, focalPosition));
+      for (let j = this._viewportWidth - 1; j >= 0; j--) {
+        const focalDirection = getUnitVector(vSub(camera.position, rayOrigin));
 
-        const samplePower = this._castRay(rayOrigin, rayDirection, plane, components.spheres, light, components.albedos);
+        const lensPointSample = this._generateCameraLensPointSample(camera);
+        const lensPoint = vSum(camera.position, vSum(vMultiply(sensorXDirection, lensPointSample.x), vMultiply(sensorYDirection, lensPointSample.y)));
+
+        const convergencePoint = vSum(camera.position, vMultiply(focalDirection, camera.focus));
+        const rayDirection = getUnitVector(vSub(convergencePoint, lensPoint));
+
+        const samplePower = this._castRay(lensPoint, rayDirection, plane, components.spheres, light, components.albedos);
         const prevPower: Color = { r: this._powersBuffer[bufIndex], g: this._powersBuffer[bufIndex + 1], b: this._powersBuffer[bufIndex + 2] };
-				const powerSum = cSum(cMultiply(prevPower, samples - 1), samplePower);
+				const powerSum = cSum(cMultiply(prevPower, samples - 1), cMultiply(samplePower, cameraSamplePdf));
 				const totalPower = cMultiply(powerSum, 1.0 / samples);
         this._powersBuffer[bufIndex] = totalPower.r;
         this._powersBuffer[bufIndex + 1] = totalPower.g;
@@ -87,8 +94,8 @@ export class RayTracingService {
 
         // accepting incoming light by camera
         let acceptedPower = cMultiply(totalPower, camera.lensArea / camera.shutter * camera.iso);
-        acceptedPower = cMin(cMax(acceptedPower, 0), 0.000001);
-        const color = cProd({ r: 255, g: 255, b: 255 }, cMultiply(acceptedPower, 1000000));
+        acceptedPower = cMin(cMax(acceptedPower, 0), 0.001);
+        const color = cProd({ r: 255, g: 255, b: 255 }, cMultiply(acceptedPower, 1000));
 
         data[dataIndex] = color.r;
         data[dataIndex + 1] = color.g;
@@ -96,8 +103,8 @@ export class RayTracingService {
         data[dataIndex + 3] = 255;
 
         rayOrigin = vSum(rayOrigin, cameraXStep);
-        dataIndex += 4;
-        bufIndex += 3;
+        dataIndex -= 4;
+        bufIndex -= 3;
       }
       pixelRowStartPosition = vSum(pixelRowStartPosition, cameraYStep);
     }
@@ -124,7 +131,7 @@ export class RayTracingService {
 
     const { hitId, hitPoint, normal: hitNormal } = hitResult;
     const diffuse = albedos[hitId].color;
-    const lightDirectionSample = this._generateLightDirectionSample(light);
+    const lightDirectionSample = this._generateSampleWithinAngle(light.angleRadians);
     const lightDirectionCoordinates = this._getNormalCoordinates(light.direction);
     const ldWorldSample = this._getWorldSample(lightDirectionSample, light.lightDir, lightDirectionCoordinates.nt, lightDirectionCoordinates.nb);
     if (this._checkIsLitByDirectionalLight(hitPoint, ldWorldSample, plane, spheres)) {
@@ -247,16 +254,24 @@ export class RayTracingService {
     return { x: x, y: r1, z: z };
   }
 
-  private _generateLightDirectionSample(light: DirectionalLight): Vector3 {
+  private _generateSampleWithinAngle(angleRadians: number): Vector3 {
     const r1 = Math.random();
     const r2 = Math.random();
-    const halfAngleCos = Math.cos(light.angleRadians / 2);
+    const halfAngleCos = Math.cos(angleRadians / 2);
     const y = r1 * (1 - halfAngleCos) + halfAngleCos;
     const sinTheta = Math.sqrt(1 - y * y);
-    const phi = (Math.PI - light.angleRadians) / 2 + r2 * light.angleRadians;
+    const phi = (Math.PI - angleRadians) / 2 + r2 * angleRadians;
     const x = sinTheta * Math.cos(phi);
     const z = sinTheta * Math.sin(phi);
     return { x, y, z };
+  }
+
+  private _generateCameraLensPointSample(camera: Camera): { x: number, y: number } {
+    const r1 = Math.random();
+    const r2 = Math.random();
+    const r = r1 * camera.focalLength * 0.0005 / camera.aperture;
+    const phi = r2 * 2.0 * Math.PI;
+    return { x: r * Math.cos(phi), y: r * Math.sin(phi) };
   }
 
   private _getWorldSample(sample: Vector3, n: Vector3, nt: Vector3, nb: Vector3): Vector3 {
