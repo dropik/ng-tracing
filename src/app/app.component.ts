@@ -52,21 +52,21 @@ export class AppComponent implements OnInit {
     this.components.albedos[planeId] = planeColor;
 
     const sphere1Id = this.guid();
-    const shpere1: Sphere = { entityId: sphere1Id, center: { x: 0.2, y: 0.1, z: 0.1 }, radius: 0.1 };
+    const shpere1: Sphere = { entityId: sphere1Id, center: { x: 0.2, y: 0.1, z: 0.1 }, radius: 0.1, r2: 0 };
     const sphere1Color: Albedo = { entityId: sphere1Id, color: diffuseMap({ r: 150, g: 30, b: 20 }) };
     this.entities[sphere1Id] = { name: "Sphere 1" };
     this.components.spheres[sphere1Id] = shpere1;
     this.components.albedos[sphere1Id] = sphere1Color;
 
     const sphere2Id = this.guid();
-    const shpere2: Sphere = { entityId: sphere2Id, center: { x: 2.5, y: 2, z: 30 }, radius: 2 };
+    const shpere2: Sphere = { entityId: sphere2Id, center: { x: 2.5, y: 2, z: 30 }, radius: 2, r2: 0 };
     const sphere2Color: Albedo = { entityId: sphere2Id, color: diffuseMap({ r: 30, g: 50, b: 150 }) };
     this.entities[sphere2Id] = { name: "Sphere 2" };
     this.components.spheres[sphere2Id] = shpere2;
     this.components.albedos[sphere2Id] = sphere2Color;
 
     const sphere3Id = this.guid();
-    const shpere3: Sphere = { entityId: sphere3Id, center: { x: -0.3, y: 0.3, z: 0.6 }, radius: 0.3 };
+    const shpere3: Sphere = { entityId: sphere3Id, center: { x: -0.3, y: 0.3, z: 0.6 }, radius: 0.3, r2: 0 };
     const sphere3Color: Albedo = { entityId: sphere3Id, color: diffuseMap({ r: 50, g: 150, b: 50 }) };
     this.entities[sphere3Id] = { name: "Sphere 3" };
     this.components.spheres[sphere3Id] = shpere3;
@@ -81,6 +81,9 @@ export class AppComponent implements OnInit {
       lightDir: { x: 0, y: 0, z: 0 },
       diskAngle: 3,
       angleRadians: 0,
+      halfAngleCos: 0,
+      nt: { x: 0, y: 0, z: 0 },
+      nb: { x: 0, y: 0, z: 0 },
     };
     this.entities[lightId] = { name: "Directional Light" };
     this.components.lights[lightId] = light;
@@ -98,6 +101,7 @@ export class AppComponent implements OnInit {
       shutter: 2000,
       iso: 100,
       lensArea: 0,
+      lensRadius: 0,
     };
     this.entities[cameraId] = { name: "Main Camera" };
     this.components.cameras[cameraId] = camera;

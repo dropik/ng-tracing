@@ -15,6 +15,7 @@ import { Vector3 } from './vector3.model';
 })
 export class RayTracingService {
   private readonly BOUNCES = 10;
+  private readonly PI_2 = Math.PI * 2;
 
 	private _powersBuffer: Float64Array = new Float64Array();
   private _viewportWidth: number = 0;
@@ -47,6 +48,8 @@ export class RayTracingService {
       return image;
     }
 
+    const inverseSamples = 1.0 / samples;
+
 		const camera: Camera = components.cameras[Object.keys(components.cameras)[0]];
     const light = components.lights[Object.keys(components.lights)[0]];
     const plane = components.planes[Object.keys(components.planes)[0]];
@@ -55,11 +58,22 @@ export class RayTracingService {
     const sensorHeightM = camera.sensorHeight / 1000;
     const focalLengthM = camera.focalLength / 1000;
     camera.lensArea = Math.PI * Math.pow(focalLengthM / 2.0 / camera.aperture, 2);
+    camera.lensRadius = focalLengthM / 2.0 / camera.aperture;
     const cameraSamplePdf = camera.aperture / Math.PI / focalLengthM;
+    const cameraAcceptanceCoef = camera.lensArea / camera.shutter * camera.iso;
 
     light.lightDir = getUnitVector(vMultiply(light.direction, -1));
     light.angleRadians = light.diskAngle * Math.PI / 180.0;
+    light.halfAngleCos = Math.cos(light.angleRadians / 2.0);
     light.intensityMap = cMultiply({ r: 1, g: 1, b: 1}, light.intensity / 3 * light.angleRadians);
+    const lightDirectionCoordinates = this._getNormalCoordinates(light.direction);
+    light.nt = lightDirectionCoordinates.nt;
+    light.nb = lightDirectionCoordinates.nb;
+
+    for (const sphereId in components.spheres) {
+      const sphere = components.spheres[sphereId];
+      sphere.r2 = sphere.radius * sphere.radius;
+    }
 
     const yAxis: Vector3 = { x: 0, y: 1, z: 0 };
     const sensorXDirection = getUnitVector(cross(yAxis, camera.direction));
@@ -85,15 +99,16 @@ export class RayTracingService {
         const rayDirection = getUnitVector(vSub(convergencePoint, lensPoint));
 
         const samplePower = this._castRay(lensPoint, rayDirection, plane, components.spheres, light, components.albedos);
-        const prevPower: Color = { r: this._powersBuffer[bufIndex], g: this._powersBuffer[bufIndex + 1], b: this._powersBuffer[bufIndex + 2] };
-				const powerSum = cSum(cMultiply(prevPower, samples - 1), cMultiply(samplePower, cameraSamplePdf));
-				const totalPower = cMultiply(powerSum, 1.0 / samples);
-        this._powersBuffer[bufIndex] = totalPower.r;
-        this._powersBuffer[bufIndex + 1] = totalPower.g;
-        this._powersBuffer[bufIndex + 2] = totalPower.b;
+
+        let powerSum: Color = { r: this._powersBuffer[bufIndex], g: this._powersBuffer[bufIndex + 1], b: this._powersBuffer[bufIndex + 2] };
+				powerSum = cSum(powerSum, cMultiply(samplePower, cameraSamplePdf));
+				const totalPower = cMultiply(powerSum, inverseSamples);
+        this._powersBuffer[bufIndex] = powerSum.r;
+        this._powersBuffer[bufIndex + 1] = powerSum.g;
+        this._powersBuffer[bufIndex + 2] = powerSum.b;
 
         // accepting incoming light by camera
-        let acceptedPower = cMultiply(totalPower, camera.lensArea / camera.shutter * camera.iso);
+        let acceptedPower = cMultiply(totalPower, cameraAcceptanceCoef);
         acceptedPower = cMin(cMax(acceptedPower, 0), 0.001);
         const color = cProd({ r: 255, g: 255, b: 255 }, cMultiply(acceptedPower, 1000));
 
@@ -131,9 +146,8 @@ export class RayTracingService {
 
     const { hitId, hitPoint, normal: hitNormal } = hitResult;
     const diffuse = albedos[hitId].color;
-    const lightDirectionSample = this._generateSampleWithinAngle(light.angleRadians);
-    const lightDirectionCoordinates = this._getNormalCoordinates(light.direction);
-    const ldWorldSample = this._getWorldSample(lightDirectionSample, light.lightDir, lightDirectionCoordinates.nt, lightDirectionCoordinates.nb);
+    const lightDirectionSample = this._generateLightDirectionSample(light);
+    const ldWorldSample = this._getWorldSample(lightDirectionSample, light.lightDir, light.nt, light.nb);
     if (this._checkIsLitByDirectionalLight(hitPoint, ldWorldSample, plane, spheres)) {
       result = cSum(result, this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, diffuse));
     }
@@ -151,7 +165,7 @@ export class RayTracingService {
     const reflectedIntencity = this._castRay(hitPoint, sampleWorld, plane, spheres, light, albedos, bounce + 1);
     indirectResult = cSum(indirectResult, this._evaluateBRDF(hitNormal, sampleWorld, reflectedIntencity, diffuse));
 
-    result = cSum(result, cMultiply(indirectResult, 2 * Math.PI));
+    result = cSum(result, cMultiply(indirectResult, this.PI_2));
     return result;
   }
 
@@ -181,7 +195,7 @@ export class RayTracingService {
       if (d > sphere.radius) {
         continue;
       }
-      const t = proj - Math.sqrt(sphere.radius * sphere.radius - d2);
+      const t = proj - Math.sqrt(sphere.r2 - d2);
       if (t < 0 || t > minHitDistance) {
         continue;
       }
@@ -220,7 +234,7 @@ export class RayTracingService {
       if (d > sphere.radius) {
         continue;
       }
-      const thc = Math.sqrt(sphere.radius * sphere.radius - d2);
+      const thc = Math.sqrt(sphere.r2 - d2);
       const t0 = proj - thc;
       const t1 = proj + thc;
       if (t0 > 0 || t1 > 0) {
@@ -248,19 +262,18 @@ export class RayTracingService {
     const r1 = Math.random();     // cosTheta
     const r2 = Math.random();
     const sinTheta = Math.sqrt(1 - r1 * r1);
-    const phi = 2 * Math.PI * r2;
+    const phi = this.PI_2 * r2;
     const x = sinTheta * Math.cos(phi);
     const z = sinTheta * Math.sin(phi);
     return { x: x, y: r1, z: z };
   }
 
-  private _generateSampleWithinAngle(angleRadians: number): Vector3 {
+  private _generateLightDirectionSample(light: DirectionalLight): Vector3 {
     const r1 = Math.random();
     const r2 = Math.random();
-    const halfAngleCos = Math.cos(angleRadians / 2);
-    const y = r1 * (1 - halfAngleCos) + halfAngleCos;
+    const y = r1 * (1 - light.halfAngleCos) + light.halfAngleCos;
     const sinTheta = Math.sqrt(1 - y * y);
-    const phi = (Math.PI - angleRadians) / 2 + r2 * angleRadians;
+    const phi = (Math.PI - light.angleRadians) / 2 + r2 * light.angleRadians;
     const x = sinTheta * Math.cos(phi);
     const z = sinTheta * Math.sin(phi);
     return { x, y, z };
@@ -269,8 +282,8 @@ export class RayTracingService {
   private _generateCameraLensPointSample(camera: Camera): { x: number, y: number } {
     const r1 = Math.random();
     const r2 = Math.random();
-    const r = r1 * camera.focalLength * 0.0005 / camera.aperture;
-    const phi = r2 * 2.0 * Math.PI;
+    const r = r1 * camera.lensRadius;
+    const phi = r2 * this.PI_2;
     return { x: r * Math.cos(phi), y: r * Math.sin(phi) };
   }
 

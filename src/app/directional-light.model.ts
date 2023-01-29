@@ -9,4 +9,7 @@ export interface DirectionalLight extends ComponentData {
   lightDir: Vector3;
   diskAngle: number;
   angleRadians: number;
+  halfAngleCos: number;
+  nt: Vector3;
+  nb: Vector3;
 }
