@@ -1,14 +1,13 @@
 import { Injectable } from '@angular/core';
-import { Albedo } from './albedo.model';
 import { Camera } from './camera.model';
 import { Color } from './color.model';
 import { Components } from './components.model';
 import { Dictionary } from './dictionary.model';
 import { DirectionalLight } from './directional-light.model';
 import { Plane } from './plane.model';
-import { Roughness } from './roughness.model';
+import { Material } from './material.model';
 import { Sphere } from './sphere.model';
-import { clamp, cLerp, cMax, cMin, cMultiply, cProd, cross, cSum, dot, lerp, luminance, normalize, reflect, saturate, vMultiply, vSub, vSum } from './utils';
+import { clamp, cLerp, cMax, cMin, cMultiply, cProd, cross, cSum, dot, lerp, luminance, magnitude, normalize, reflect, saturate, vMultiply, vSub, vSum } from './utils';
 import { Vector3 } from './vector3.model';
 
 @Injectable({
@@ -54,7 +53,6 @@ export class RayTracingService {
 
 		const camera: Camera = components.cameras[Object.keys(components.cameras)[0]];
     const light = components.lights[Object.keys(components.lights)[0]];
-    const plane = components.planes[Object.keys(components.planes)[0]];
 
     const sensorWidthM = camera.sensorWidth / 1000;
     const sensorHeightM = camera.sensorHeight / 1000;
@@ -72,17 +70,28 @@ export class RayTracingService {
     light.nt = lightDirectionCoordinates.nt;
     light.nb = lightDirectionCoordinates.nb;
 
+    for (const planeId in components.planes) {
+      const plane = components.planes[planeId];
+      const v0v1 = vSub(plane.v1, plane.v0);
+      const v0v2 = vSub(plane.v2, plane.v0);
+      plane.v3 = vSum(plane.v0, vSub(plane.v2, plane.v1));
+      plane.n = cross(v0v1, v0v2);
+      plane.normal = normalize(plane.n);
+      plane.area = magnitude(plane.n);
+    }
+
     for (const sphereId in components.spheres) {
       const sphere = components.spheres[sphereId];
       sphere.r2 = sphere.radius * sphere.radius;
     }
 
-    for (const roughnessId in components.roughnesses) {
-      const roughness = components.roughnesses[roughnessId];
-      roughness.alpha = roughness.value * roughness.value;
-      roughness.alphaSquared = roughness.alpha * roughness.alpha;
-      roughness.specularF0 = this._baseColorToSpecularF0(components.albedos[roughnessId].color, 0);
-      roughness.shadowedF90 = this._shadowedF90(roughness.specularF0);
+    for (const materialId in components.materials) {
+      const material = components.materials[materialId];
+      material.diffuseReflectance = cMultiply(material.baseColor, 1.0 - material.metalness);
+      material.alpha = material.roughness * material.roughness;
+      material.alphaSquared = material.alpha * material.alpha;
+      material.specularF0 = this._baseColorToSpecularF0(material.baseColor, material.metalness);
+      material.shadowedF90 = this._shadowedF90(material.specularF0);
     }
 
     const yAxis: Vector3 = { x: 0, y: 1, z: 0 };
@@ -108,7 +117,7 @@ export class RayTracingService {
         const convergencePoint = vSum(camera.position, vMultiply(focalDirection, camera.focus));
         const rayDirection = normalize(vSub(convergencePoint, lensPoint));
 
-        const samplePower = this._castRay(lensPoint, rayDirection, plane, components.spheres, light, components.albedos, components.roughnesses);
+        const samplePower = this._castRay(lensPoint, rayDirection, components.planes, components.spheres, light, components.materials);
 
         let powerSum: Color = { r: this._powersBuffer[bufIndex], g: this._powersBuffer[bufIndex + 1], b: this._powersBuffer[bufIndex + 2] };
 				powerSum = cSum(powerSum, cMultiply(samplePower, cameraSamplePdf));
@@ -141,17 +150,16 @@ export class RayTracingService {
   private _castRay(
     rayOrigin: Vector3,
     rayDirection: Vector3,
-    plane: Plane,
+    planes: Dictionary<Plane>,
     spheres: Dictionary<Sphere>,
     light: DirectionalLight,
-    albedos: Dictionary<Albedo>,
-    roughnesses: Dictionary<Roughness>,
+    materials: Dictionary<Material>,
     bounce = 0
   ): Color {
     let result: Color = { r: 0, g: 0, b: 0 };
     const v = vMultiply(rayDirection, -1);
 
-    const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, spheres);
+    const hitResult = this._getHitEntityId(rayOrigin, rayDirection, planes, spheres);
     if (!hitResult) {
       return result;
     }
@@ -159,20 +167,20 @@ export class RayTracingService {
     const { hitId, hitPoint, normal: hitNormal } = hitResult;
 
     const NdotV = clamp(dot(hitNormal, v), 0.00001, 1.0);
-    const diffuse = albedos[hitId].color;
-    const roughness = roughnesses[hitId];
+    const material = materials[hitId];
+    const diffuse = material.diffuseReflectance;
 
     const lightDirectionSample = this._generateLightDirectionSample(light);
     const ldWorldSample = this._getWorldSample(lightDirectionSample, light.lightDir, light.nt, light.nb);
-    if (this._checkIsLitByDirectionalLight(hitPoint, ldWorldSample, plane, spheres)) {
+    if (this._checkIsLitByDirectionalLight(hitPoint, ldWorldSample, planes, spheres)) {
       const diffuseTerm = this._evaluateDiffuseBRDF(hitNormal, light.lightDir, light.intensityMap, diffuse);
 
       const h = normalize(vSum(ldWorldSample, v));
       const NdotL = clamp(dot(hitNormal, ldWorldSample), 0.00001, 1.0);
       const LdotH = saturate(dot(ldWorldSample, h));
       const NdotH = saturate(dot(hitNormal, h));
-      const fresnelTerm = this._evaluateFresnelSchlickSphericalGaussian(roughness.specularF0, roughness.shadowedF90, LdotH);
-      const specularTerm = this._evalMicrofacet(roughness.alpha, roughness.alphaSquared, NdotL, NdotH, NdotV, fresnelTerm);
+      const fresnelTerm = this._evaluateFresnelSchlickSphericalGaussian(material.specularF0, material.shadowedF90, LdotH);
+      const specularTerm = this._evalMicrofacet(material.alpha, material.alphaSquared, NdotL, NdotH, NdotV, fresnelTerm);
 
       result = cSum(
         result,
@@ -199,16 +207,16 @@ export class RayTracingService {
       y: dot(v, hitNormal),
       z: dot(v, nb)
     }
-    const sampleH = this._generateGGXVNDFSample(vLocal, roughness.alpha);
+    const sampleH = this._generateGGXVNDFSample(vLocal, material.alpha);
     const sampleWorldH = this._getWorldSample(sampleH, hitNormal, nt, nb);
     const sampleWorldL = reflect(rayDirection, sampleWorldH);
 
-    const reflectedIntencity = this._castRay(hitPoint, sampleWorldL, plane, spheres, light, albedos, roughnesses, bounce + 1);
+    const reflectedIntencity = this._castRay(hitPoint, sampleWorldL, planes, spheres, light, materials, bounce + 1);
     const diffuseTerm = this._evaluateDiffuseBRDF(hitNormal, sampleWorldL, reflectedIntencity, diffuse);
     const NdotL = clamp(dot(hitNormal, sampleWorldL), 0.00001, 1.0);
     const LdotH = saturate(dot(sampleWorldL, sampleWorldH));
-    const fresnelTerm = this._evaluateFresnelSchlickSphericalGaussian(roughness.specularF0, roughness.shadowedF90, LdotH);
-    const specularTerm = cMultiply(fresnelTerm, this._SmithG2OverG1HeightCorrelated(roughness.alpha, roughness.alphaSquared, NdotL, NdotV));
+    const fresnelTerm = this._evaluateFresnelSchlickSphericalGaussian(material.specularF0, material.shadowedF90, LdotH);
+    const specularTerm = cMultiply(fresnelTerm, this._SmithG2OverG1HeightCorrelated(material.alpha, material.alphaSquared, NdotL, NdotV));
 
     const indirectResult = cSum(
       cProd(
@@ -224,17 +232,21 @@ export class RayTracingService {
     return result;
   }
 
-  private _getHitEntityId(rayOrigin: Vector3, rayDirection: Vector3, plane: Plane, spheres: Dictionary<Sphere>): { hitId: string, hitPoint: Vector3, normal: Vector3 } | undefined {
+  private _getHitEntityId(rayOrigin: Vector3, rayDirection: Vector3, planes: Dictionary<Plane>, spheres: Dictionary<Sphere>): { hitId: string, hitPoint: Vector3, normal: Vector3 } | undefined {
     let minHitDistance = Number.MAX_VALUE;
     let hitPoint: Vector3 = { x: 0, y: 0, z: 0 };
     let hitId: string | undefined = undefined;
     let normal: Vector3 = { x: 0, y: 0, z: 0 };
 
-    // check for collision with plane
-    const planeDistance = dot(vSub(plane.center, rayOrigin), plane.normal) / dot(rayDirection, plane.normal);
-    if (planeDistance > 0) {
-      minHitDistance = planeDistance;
-      hitPoint = vSum(vSum(rayOrigin, vMultiply(rayDirection, planeDistance)), vMultiply(plane.normal, 0.000001));
+    // check for collision with planes
+    for (const planeId in planes) {
+      const plane = planes[planeId];
+      const planeHitResult = this._rayPlaneIntersect(rayOrigin, rayDirection, plane);
+      if (!planeHitResult || planeHitResult.hitDistance >= minHitDistance) {
+        continue;
+      }
+      minHitDistance = planeHitResult.hitDistance;
+      hitPoint = planeHitResult.hitPoint;
       hitId = plane.entityId;
       normal = plane.normal;
     }
@@ -270,15 +282,16 @@ export class RayTracingService {
     return  { hitId, hitPoint, normal };
   }
 
-  private _checkIsLitByDirectionalLight(hitPoint: Vector3, lightDir: Vector3, plane: Plane, spheres: Dictionary<Sphere>): boolean {
+  private _checkIsLitByDirectionalLight(hitPoint: Vector3, lightDir: Vector3, planes: Dictionary<Plane>, spheres: Dictionary<Sphere>): boolean {
     // check hit point is obstacled from being lit by plane
-    const planeAsLightObstacleDistance = dot(vSub(plane.center, hitPoint), plane.normal) / dot(lightDir, plane.normal);
-    if (planeAsLightObstacleDistance >= 0) {
-      return false;
+    for (const planeId in planes) {
+      const plane = planes[planeId];
+      if (this._rayPlaneIntersect(hitPoint, lightDir, plane)) {
+        return false;
+      }
     }
 
     // check if hit point is obstacled from being lit by spheres
-    let isLit = true;
     for (const sphereId in spheres) {
       const sphere = spheres[sphereId];
 
@@ -293,12 +306,11 @@ export class RayTracingService {
       const t0 = proj - thc;
       const t1 = proj + thc;
       if (t0 > 0 || t1 > 0) {
-        isLit = false;
-        break;
+        return false;
       }
     }
 
-    return isLit;
+    return true;
   }
 
   // BRDF for given incoming light
@@ -419,5 +431,60 @@ export class RayTracingService {
       y: sample.x * nt.y + sample.y * n.y + sample.z * nb.y,
       z: sample.x * nt.z + sample.y * n.z + sample.z * nb.z,
     };
+  }
+
+  private _rayPlaneIntersect(rayOrigin: Vector3, rayDirection: Vector3, plane: Plane): { hitPoint: Vector3, hitDistance: number } | undefined {
+    // Step 1: finding P
+
+    // check if the ray and plane are parallel.
+    const NdotRayDirection = dot(plane.n, rayDirection);
+    if (Math.abs(NdotRayDirection) < 0.000001) { // almost 0
+        return undefined; // they are parallel, so they don't intersect!
+    }
+
+    // compute d parameter using equation 2
+    const minusN = vMultiply(plane.n, -1);
+    const d = dot(minusN, plane.v0);
+
+    // compute t (equation 3)
+    const t = -(dot(plane.n, rayOrigin) + d) / NdotRayDirection;
+
+    // check if the triangle is behind the ray
+    if (t < 0) return undefined; // the triangle is behind
+
+    // compute the intersection point using equation 1
+    const P = vSum(rayOrigin, vMultiply(rayDirection, t));
+
+
+    // Step 2: inside-outside test
+    if (!this._checkPointIsInsideTriangle(plane.v0, plane.v1, plane.v2, plane.n, P)
+      && !this._checkPointIsInsideTriangle(plane.v0, plane.v2, plane.v3, plane.n, P)) {
+        return undefined;
+      }
+
+    return { hitPoint: vSum(P, vMultiply(plane.normal, 0.00001)), hitDistance: t }; // this ray hits the triangle
+  }
+
+  private _checkPointIsInsideTriangle(v0: Vector3, v1: Vector3, v2: Vector3, n: Vector3, P: Vector3): boolean {
+    // edge 0
+    let C: Vector3; // vector perpendicular to triangle's plane
+    const edge0 = vSub(v1, v0);
+    const vp0 = vSub(P, v0);
+    C = cross(edge0, vp0);
+    if (dot(n, C) < 0) return false; // P is on the right side
+
+    // edge 1
+    const edge1 = vSub(v2, v1);
+    const vp1 = vSub(P, v1);
+    C = cross(edge1, vp1);
+    if (dot(n, C) < 0)  return false; // P is on the right side
+
+    // edge 2
+    const edge2 = vSub(v0, v2);
+    const vp2 = vSub(P, v2);
+    C = cross(edge2, vp2);
+    if (dot(n, C) < 0) return false; // P is on the right side;
+
+    return true;
   }
 }

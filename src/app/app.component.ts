@@ -1,5 +1,4 @@
 import { Component, ElementRef, OnInit, ViewChild } from '@angular/core';
-import { Albedo } from './albedo.model';
 import { Camera } from './camera.model';
 import { Components } from './components.model';
 import { Dictionary } from './dictionary.model';
@@ -7,9 +6,9 @@ import { DirectionalLight } from './directional-light.model';
 import { Entity } from './entity.model';
 import { Plane } from './plane.model';
 import { RayTracingService } from './ray-tracing.service';
-import { Roughness } from './roughness.model';
+import { Material } from './material.model';
 import { Sphere } from './sphere.model';
-import { diffuseMap, normalize } from './utils';
+import { diffuseMap as clampColor, normalize } from './utils';
 
 @Component({
   selector: 'app-root',
@@ -28,8 +27,7 @@ export class AppComponent implements OnInit {
     planes: {},
     spheres: {},
     colors: {},
-    albedos: {},
-    roughnesses: {},
+    materials: {},
   };
   public lastSampleTime = 0;
   public lastFps = 0;
@@ -46,74 +44,191 @@ export class AppComponent implements OnInit {
 
   ngOnInit(): void {
     // composing initial scene
-    const planeId = this.guid();
-    const plane: Plane = { entityId: planeId, center: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 1, z: 0 } };
-    const planeColor: Albedo = { entityId: planeId, color: diffuseMap({ r: 180, g: 180, b: 180 }) };
-    const planeRoughness: Roughness = {
-      entityId: planeId,
-      value: 0.5,
+    const plane1Id = this.guid();
+    const plane1: Plane = {
+      entityId: plane1Id,
+      v0: { x: -1, y: 0, z: -0.5 },
+      v1: { x: -1, y: 0, z: 2 },
+      v2: { x: 1, y: 0, z: 2 },
+      v3: { x: 0, y: 0, z: 0 },
+      area: 0,
+      n: { x: 0, y: 0, z: 0 },
+      normal: { x: 0, y: 1, z: 0 },
+    };
+    const plane1Material: Material = {
+      entityId: plane1Id,
+      baseColor: clampColor({ r: 160, g: 160, b: 160 }),
+      roughness: 0.5,
+      metalness: 0,
       alpha: 0,
       alphaSquared: 0,
       specularF0: { r: 0, g: 0, b: 0 },
-      shadowedF90: 0
+      shadowedF90: 0,
+      diffuseReflectance: { r: 0, g: 0, b: 0 },
     };
-    this.entities[planeId] = { name: "Floor" };
-    this.components.planes[planeId] = plane;
-    this.components.albedos[planeId] = planeColor;
-    this.components.roughnesses[planeId] = planeRoughness;
+    this.entities[plane1Id] = { name: "Bottom" };
+    this.components.planes[plane1Id] = plane1;
+    this.components.materials[plane1Id] = plane1Material;
+
+    const plane2Id = this.guid();
+    const plane2: Plane = {
+      entityId: plane2Id,
+      v0: { x: -0.8, y: 1.2, z: 2 },
+      v1: { x: -0.8, y: 0, z: 2 },
+      v2: { x: -0.8, y: 0, z: -0.5 },
+      v3: { x: 0, y: 0, z: 0 },
+      area: 0,
+      n: { x: 0, y: 0, z: 0 },
+      normal: { x: 1, y: 0, z: 0 },
+    };
+    const plane2Material: Material = {
+      entityId: plane2Id,
+      baseColor: clampColor({ r: 130, g: 10, b: 10 }),
+      roughness: 0.5,
+      metalness: 0,
+      alpha: 0,
+      alphaSquared: 0,
+      specularF0: { r: 0, g: 0, b: 0 },
+      shadowedF90: 0,
+      diffuseReflectance: { r: 0, g: 0, b: 0 },
+    };
+    this.entities[plane2Id] = { name: "Left" };
+    this.components.planes[plane2Id] = plane2;
+    this.components.materials[plane2Id] = plane2Material;
+
+    const plane3Id = this.guid();
+    const plane3: Plane = {
+      entityId: plane3Id,
+      v0: { x: -1, y: 0, z: 2 },
+      v1: { x: -1, y: 1.2, z: 2 },
+      v2: { x: 1, y: 1.2, z: 2 },
+      v3: { x: 0, y: 0, z: 0 },
+      area: 0,
+      n: { x: 0, y: 0, z: 0 },
+      normal: { x: 1, y: 0, z: 0 },
+    };
+    const plane3Material: Material = {
+      entityId: plane3Id,
+      baseColor: clampColor({ r: 150, g: 150, b: 150 }),
+      roughness: 0.5,
+      metalness: 0,
+      alpha: 0,
+      alphaSquared: 0,
+      specularF0: { r: 0, g: 0, b: 0 },
+      shadowedF90: 0,
+      diffuseReflectance: { r: 0, g: 0, b: 0 },
+    };
+    this.entities[plane3Id] = { name: "Back" };
+    this.components.planes[plane3Id] = plane3;
+    this.components.materials[plane3Id] = plane3Material;
+
+    // const plane4Id = this.guid();
+    // const plane4: Plane = {
+    //   entityId: plane4Id,
+    //   v0: { x: -1, y: 0.8, z: 2 },
+    //   v1: { x: -1, y: 0.8, z: -0.5 },
+    //   v2: { x: 1, y: 0.8, z: -0.5 },
+    //   v3: { x: 0, y: 0, z: 0 },
+    //   area: 0,
+    //   n: { x: 0, y: 0, z: 0 },
+    //   normal: { x: 1, y: 0, z: 0 },
+    // };
+    // const plane4Material: Material = {
+    //   entityId: plane4Id,
+    //   baseColor: clampColor({ r: 255, g: 255, b: 255 }),
+    //   roughness: 0,
+    //   metalness: 0,
+    //   alpha: 0,
+    //   alphaSquared: 0,
+    //   specularF0: { r: 0, g: 0, b: 0 },
+    //   shadowedF90: 0,
+    //   diffuseReflectance: { r: 0, g: 0, b: 0 },
+    // };
+    // this.entities[plane4Id] = { name: "Top" };
+    // this.components.planes[plane4Id] = plane4;
+    // this.components.materials[plane4Id] = plane4Material;
+
+    const plane5Id = this.guid();
+    const plane5: Plane = {
+      entityId: plane5Id,
+      v0: { x: 0.8, y: 0, z: 2 },
+      v1: { x: 0.8, y: 1.2, z: 2 },
+      v2: { x: 0.8, y: 1.2, z: -0.5 },
+      v3: { x: 0, y: 0, z: 0 },
+      area: 0,
+      n: { x: 0, y: 0, z: 0 },
+      normal: { x: 1, y: 0, z: 0 },
+    };
+    const plane5Material: Material = {
+      entityId: plane5Id,
+      baseColor: clampColor({ r: 10, g: 210, b: 10 }),
+      roughness: 0.5,
+      metalness: 0,
+      alpha: 0,
+      alphaSquared: 0,
+      specularF0: { r: 0, g: 0, b: 0 },
+      shadowedF90: 0,
+      diffuseReflectance: { r: 0, g: 0, b: 0 },
+    };
+    this.entities[plane5Id] = { name: "Right" };
+    this.components.planes[plane5Id] = plane5;
+    this.components.materials[plane5Id] = plane5Material;
 
     const sphere1Id = this.guid();
-    const shpere1: Sphere = { entityId: sphere1Id, center: { x: 0.2, y: 0.1, z: 0.1 }, radius: 0.1, r2: 0 };
-    const sphere1Color: Albedo = { entityId: sphere1Id, color: diffuseMap({ r: 180, g: 30, b: 20 }) };
-    const sphere1Roughness: Roughness = {
+    const shpere1: Sphere = { entityId: sphere1Id, center: { x: 0, y: 0.2, z: 0.6 }, radius: 0.2, r2: 0 };
+    const sphere1Material: Material = {
       entityId: sphere1Id,
-      value: 0.9,
+      baseColor: clampColor({ r: 180, g: 30, b: 20 }),
+      roughness: 0.5,
+      metalness: 0,
       alpha: 0,
       alphaSquared: 0,
       specularF0: { r: 0, g: 0, b: 0 },
-      shadowedF90: 0
+      shadowedF90: 0,
+      diffuseReflectance: { r: 0, g: 0, b: 0 },
     };
-    this.entities[sphere1Id] = { name: "Sphere 1" };
+    this.entities[sphere1Id] = { name: "Sphere Red" };
     this.components.spheres[sphere1Id] = shpere1;
-    this.components.albedos[sphere1Id] = sphere1Color;
-    this.components.roughnesses[sphere1Id] = sphere1Roughness;
+    this.components.materials[sphere1Id] = sphere1Material;
 
     const sphere2Id = this.guid();
-    const shpere2: Sphere = { entityId: sphere2Id, center: { x: 2.5, y: 2, z: 30 }, radius: 2, r2: 0 };
-    const sphere2Color: Albedo = { entityId: sphere2Id, color: diffuseMap({ r: 30, g: 50, b: 150 }) };
-    const sphere2Roughness: Roughness = {
+    const shpere2: Sphere = { entityId: sphere2Id, center: { x: 0.45, y: 0.2, z: 0.6 }, radius: 0.2, r2: 0 };
+    const sphere2Material: Material = {
       entityId: sphere2Id,
-      value: 0.9,
+      baseColor: clampColor({ r: 30, g: 50, b: 150 }),
+      roughness: 0,
+      metalness: 0,
       alpha: 0,
       alphaSquared: 0,
       specularF0: { r: 0, g: 0, b: 0 },
-      shadowedF90: 0
+      shadowedF90: 0,
+      diffuseReflectance: { r: 0, g: 0, b: 0 },
     };
-    this.entities[sphere2Id] = { name: "Sphere 2" };
+    this.entities[sphere2Id] = { name: "Sphere Blue" };
     this.components.spheres[sphere2Id] = shpere2;
-    this.components.albedos[sphere2Id] = sphere2Color;
-    this.components.roughnesses[sphere2Id] = sphere2Roughness;
+    this.components.materials[sphere2Id] = sphere2Material;
 
     const sphere3Id = this.guid();
-    const shpere3: Sphere = { entityId: sphere3Id, center: { x: -0.3, y: 0.3, z: 0.6 }, radius: 0.3, r2: 0 };
-    const sphere3Color: Albedo = { entityId: sphere3Id, color: diffuseMap({ r: 50, g: 150, b: 50 }) };
-    const sphere3Roughness: Roughness = {
+    const shpere3: Sphere = { entityId: sphere3Id, center: { x: -0.45, y: 0.2, z: 0.6 }, radius: 0.2, r2: 0 };
+    const sphere3Material: Material = {
       entityId: sphere3Id,
-      value: 0,
+      baseColor: clampColor({ r: 180, g: 180, b: 180 }),
+      roughness: 0.1,
+      metalness: 0.9,
       alpha: 0,
       alphaSquared: 0,
       specularF0: { r: 0, g: 0, b: 0 },
-      shadowedF90: 0
+      shadowedF90: 0,
+      diffuseReflectance: { r: 0, g: 0, b: 0 },
     };
-    this.entities[sphere3Id] = { name: "Sphere 3" };
+    this.entities[sphere3Id] = { name: "Sphere Metal" };
     this.components.spheres[sphere3Id] = shpere3;
-    this.components.albedos[sphere3Id] = sphere3Color;
-    this.components.roughnesses[sphere3Id] = sphere3Roughness;
+    this.components.materials[sphere3Id] = sphere3Material;
 
     const lightId = this.guid();
     const light: DirectionalLight = {
       entityId: lightId,
-      direction: { x: 1, y: -1, z: 1 },
+      direction: { x: 0, y: -1, z: 1 },
       intensity: 1000,
       intensityMap: { r: 0, g: 0, b: 0 },
       lightDir: { x: 0, y: 0, z: 0 },
@@ -129,15 +244,15 @@ export class AppComponent implements OnInit {
     const cameraId = this.guid();
     const camera: Camera = {
       entityId: cameraId,
-      position: { x: 0, y: 0.5, z: -1 },
+      position: { x: 0, y: 0.5, z: -1.5 },
       direction: normalize({ x: 0, y: -0.15, z: 1 }),
       sensorWidth: 35,
       sensorHeight: 24,
-      focalLength: 35,
-      focus: 1,
+      focalLength: 50,
+      focus: 1.5,
       aperture: 1.4,
       shutter: 2000,
-      iso: 300,
+      iso: 200,
       lensArea: 0,
       lensRadius: 0,
     };
