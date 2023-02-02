@@ -6,8 +6,9 @@ import { Components } from './components.model';
 import { Dictionary } from './dictionary.model';
 import { DirectionalLight } from './directional-light.model';
 import { Plane } from './plane.model';
+import { Roughness } from './roughness.model';
 import { Sphere } from './sphere.model';
-import { cMax, cMin, cMultiply, cProd, cross, cSum, dot, getUnitVector, vMultiply, vSub, vSum } from './utils';
+import { clamp, cLerp, cMax, cMin, cMultiply, cProd, cross, cSum, dot, lerp, luminance, normalize, reflect, saturate, vMultiply, vSub, vSum } from './utils';
 import { Vector3 } from './vector3.model';
 
 @Injectable({
@@ -16,6 +17,7 @@ import { Vector3 } from './vector3.model';
 export class RayTracingService {
   private readonly BOUNCES = 10;
   private readonly PI_2 = Math.PI * 2;
+  private readonly MIN_DIELECTRICS_F0 = 0.04;
 
 	private _powersBuffer: Float64Array = new Float64Array();
   private _viewportWidth: number = 0;
@@ -62,7 +64,7 @@ export class RayTracingService {
     const cameraSamplePdf = camera.aperture / Math.PI / focalLengthM;
     const cameraAcceptanceCoef = camera.lensArea / camera.shutter * camera.iso;
 
-    light.lightDir = getUnitVector(vMultiply(light.direction, -1));
+    light.lightDir = normalize(vMultiply(light.direction, -1));
     light.angleRadians = light.diskAngle * Math.PI / 180.0;
     light.halfAngleCos = Math.cos(light.angleRadians / 2.0);
     light.intensityMap = cMultiply({ r: 1, g: 1, b: 1}, light.intensity / 3 * light.angleRadians);
@@ -75,9 +77,17 @@ export class RayTracingService {
       sphere.r2 = sphere.radius * sphere.radius;
     }
 
+    for (const roughnessId in components.roughnesses) {
+      const roughness = components.roughnesses[roughnessId];
+      roughness.alpha = roughness.value * roughness.value;
+      roughness.alphaSquared = roughness.alpha * roughness.alpha;
+      roughness.specularF0 = this._baseColorToSpecularF0(components.albedos[roughnessId].color, 0);
+      roughness.shadowedF90 = this._shadowedF90(roughness.specularF0);
+    }
+
     const yAxis: Vector3 = { x: 0, y: 1, z: 0 };
-    const sensorXDirection = getUnitVector(cross(yAxis, camera.direction));
-    const sensorYDirection = getUnitVector(cross(camera.direction, sensorXDirection));
+    const sensorXDirection = normalize(cross(yAxis, camera.direction));
+    const sensorYDirection = normalize(cross(camera.direction, sensorXDirection));
 
     const cameraXStep = vMultiply(sensorXDirection, sensorWidthM / this._viewportWidth);
     const cameraYStep = vMultiply(sensorYDirection, -sensorHeightM / this._viewportHeight);
@@ -90,15 +100,15 @@ export class RayTracingService {
     for (let i = this._viewportHeight - 1; i >= 0; i--) {
       let rayOrigin = pixelRowStartPosition;
       for (let j = this._viewportWidth - 1; j >= 0; j--) {
-        const focalDirection = getUnitVector(vSub(camera.position, rayOrigin));
+        const focalDirection = normalize(vSub(camera.position, rayOrigin));
 
         const lensPointSample = this._generateCameraLensPointSample(camera);
         const lensPoint = vSum(camera.position, vSum(vMultiply(sensorXDirection, lensPointSample.x), vMultiply(sensorYDirection, lensPointSample.y)));
 
         const convergencePoint = vSum(camera.position, vMultiply(focalDirection, camera.focus));
-        const rayDirection = getUnitVector(vSub(convergencePoint, lensPoint));
+        const rayDirection = normalize(vSub(convergencePoint, lensPoint));
 
-        const samplePower = this._castRay(lensPoint, rayDirection, plane, components.spheres, light, components.albedos);
+        const samplePower = this._castRay(lensPoint, rayDirection, plane, components.spheres, light, components.albedos, components.roughnesses);
 
         let powerSum: Color = { r: this._powersBuffer[bufIndex], g: this._powersBuffer[bufIndex + 1], b: this._powersBuffer[bufIndex + 2] };
 				powerSum = cSum(powerSum, cMultiply(samplePower, cameraSamplePdf));
@@ -109,8 +119,8 @@ export class RayTracingService {
 
         // accepting incoming light by camera
         let acceptedPower = cMultiply(totalPower, cameraAcceptanceCoef);
-        acceptedPower = cMin(cMax(acceptedPower, 0), 0.001);
-        const color = cProd({ r: 255, g: 255, b: 255 }, cMultiply(acceptedPower, 1000));
+        acceptedPower = cMin(cMax(acceptedPower, 0), 0.01);
+        const color = cProd({ r: 255, g: 255, b: 255 }, cMultiply(acceptedPower, 100));
 
         data[dataIndex] = color.r;
         data[dataIndex + 1] = color.g;
@@ -135,9 +145,11 @@ export class RayTracingService {
     spheres: Dictionary<Sphere>,
     light: DirectionalLight,
     albedos: Dictionary<Albedo>,
+    roughnesses: Dictionary<Roughness>,
     bounce = 0
   ): Color {
     let result: Color = { r: 0, g: 0, b: 0 };
+    const v = vMultiply(rayDirection, -1);
 
     const hitResult = this._getHitEntityId(rayOrigin, rayDirection, plane, spheres);
     if (!hitResult) {
@@ -145,11 +157,35 @@ export class RayTracingService {
     }
 
     const { hitId, hitPoint, normal: hitNormal } = hitResult;
+
+    const NdotV = clamp(dot(hitNormal, v), 0.00001, 1.0);
     const diffuse = albedos[hitId].color;
+    const roughness = roughnesses[hitId];
+
     const lightDirectionSample = this._generateLightDirectionSample(light);
     const ldWorldSample = this._getWorldSample(lightDirectionSample, light.lightDir, light.nt, light.nb);
     if (this._checkIsLitByDirectionalLight(hitPoint, ldWorldSample, plane, spheres)) {
-      result = cSum(result, this._evaluateBRDF(hitNormal, light.lightDir, light.intensityMap, diffuse));
+      const diffuseTerm = this._evaluateDiffuseBRDF(hitNormal, light.lightDir, light.intensityMap, diffuse);
+
+      const h = normalize(vSum(ldWorldSample, v));
+      const NdotL = clamp(dot(hitNormal, ldWorldSample), 0.00001, 1.0);
+      const LdotH = saturate(dot(ldWorldSample, h));
+      const NdotH = saturate(dot(hitNormal, h));
+      const fresnelTerm = this._evaluateFresnelSchlickSphericalGaussian(roughness.specularF0, roughness.shadowedF90, LdotH);
+      const specularTerm = this._evalMicrofacet(roughness.alpha, roughness.alphaSquared, NdotL, NdotH, NdotV, fresnelTerm);
+
+      result = cSum(
+        result,
+        cSum(
+          cProd(
+            cSum(
+              { r: 1.0, g: 1.0, b: 1.0 },
+              cMultiply(fresnelTerm, -1)
+            ),
+            diffuseTerm
+          ),
+          cProd(specularTerm, light.intensityMap)
+        ));
     }
 
     if (bounce >= this.BOUNCES) {
@@ -158,14 +194,33 @@ export class RayTracingService {
 
     // normal is local y axis
     const { nt, nb } = this._getNormalCoordinates(hitNormal);
-    let indirectResult: Color = { r: 0, g: 0, b: 0 };
-    const sample = this._generateLocalSample();
-    const sampleWorld = this._getWorldSample(sample, hitNormal, nt, nb);
+    const vLocal: Vector3 = {
+      x: dot(v, nt),
+      y: dot(v, hitNormal),
+      z: dot(v, nb)
+    }
+    const sampleH = this._generateGGXVNDFSample(vLocal, roughness.alpha);
+    const sampleWorldH = this._getWorldSample(sampleH, hitNormal, nt, nb);
+    const sampleWorldL = reflect(rayDirection, sampleWorldH);
 
-    const reflectedIntencity = this._castRay(hitPoint, sampleWorld, plane, spheres, light, albedos, bounce + 1);
-    indirectResult = cSum(indirectResult, this._evaluateBRDF(hitNormal, sampleWorld, reflectedIntencity, diffuse));
+    const reflectedIntencity = this._castRay(hitPoint, sampleWorldL, plane, spheres, light, albedos, roughnesses, bounce + 1);
+    const diffuseTerm = this._evaluateDiffuseBRDF(hitNormal, sampleWorldL, reflectedIntencity, diffuse);
+    const NdotL = clamp(dot(hitNormal, sampleWorldL), 0.00001, 1.0);
+    const LdotH = saturate(dot(sampleWorldL, sampleWorldH));
+    const fresnelTerm = this._evaluateFresnelSchlickSphericalGaussian(roughness.specularF0, roughness.shadowedF90, LdotH);
+    const specularTerm = cMultiply(fresnelTerm, this._SmithG2OverG1HeightCorrelated(roughness.alpha, roughness.alphaSquared, NdotL, NdotV));
 
-    result = cSum(result, cMultiply(indirectResult, this.PI_2));
+    const indirectResult = cSum(
+      cProd(
+        cSum(
+          { r: 1.0, g: 1.0, b: 1.0 },
+          cMultiply(fresnelTerm, -1)
+        ),
+        diffuseTerm
+      ),
+      cProd(specularTerm, reflectedIntencity));
+
+    result = cSum(result, indirectResult);
     return result;
   }
 
@@ -202,7 +257,7 @@ export class RayTracingService {
 
       minHitDistance = t;
       hitPoint = vSum(rayOrigin, vMultiply(rayDirection, t));
-      const rDir = getUnitVector(vSub(hitPoint, sphere.center));
+      const rDir = normalize(vSub(hitPoint, sphere.center));
       normal = rDir;
       hitPoint = vSum(hitPoint, vMultiply(rDir, 0.000001));
       hitId = sphere.entityId;
@@ -247,18 +302,18 @@ export class RayTracingService {
   }
 
   // BRDF for given incoming light
-  private _evaluateBRDF(normal: Vector3, lightDir: Vector3, lightIntensity: Color, diffuse: Color): Color {
+  private _evaluateDiffuseBRDF(normal: Vector3, lightDir: Vector3, lightIntensity: Color, diffuse: Color): Color {
     const cosTerm = Math.max(dot(normal, lightDir), 0);
     return cMultiply(cProd(lightIntensity, diffuse), cosTerm);
   }
 
   private _getNormalCoordinates(normal: Vector3): { nt: Vector3, nb: Vector3 } {
-    const nt: Vector3 = getUnitVector(cross({ x: Math.random(), y: Math.random(), z: Math.random() }, normal));
+    const nt: Vector3 = normalize(cross({ x: Math.random(), y: Math.random(), z: Math.random() }, normal));
     const nb = cross(nt, normal);
     return { nt, nb };
   }
 
-  private _generateLocalSample(): Vector3 {
+  private _generateDiffuseSample(): Vector3 {
     const r1 = Math.random();     // cosTheta
     const r2 = Math.random();
     const sinTheta = Math.sqrt(1 - r1 * r1);
@@ -266,6 +321,77 @@ export class RayTracingService {
     const x = sinTheta * Math.cos(phi);
     const z = sinTheta * Math.sin(phi);
     return { x: x, y: r1, z: z };
+  }
+
+  private _generateGGXVNDFSample(Ve: Vector3, alpha: number): Vector3 {
+    const r1 = Math.random();
+    const r2 = Math.random();
+
+    const Vh = normalize({ x: alpha * Ve.x, y: Ve.y, z: alpha * Ve.z });
+
+    const lensq = Vh.x * Vh.x + Vh.y * Vh.y;
+    const T1: Vector3 = lensq > 0.0 ? vMultiply({ x: -Vh.y, y: 0.0, z: Vh.x }, Math.sqrt(lensq)) : { x: 1.0, y: 0.0, z: 0.0 };
+    const T2 = cross(T1, Vh);
+
+    const r = Math.sqrt(r1);
+    const phi = this.PI_2 * r2;
+    const t1 = r * Math.cos(phi);
+    let t2 = r * Math.sin(phi);
+    const s = 0.5 * (1.0 + Vh.y);
+    t2 = lerp(Math.sqrt(1.0 - t1 * t1), t2, s);
+
+    const Nh = vSum(
+      vSum(
+        vMultiply(T1, t1),
+        vMultiply(T2, t2)),
+      vMultiply(Vh, Math.sqrt(Math.max(0.0, 1.0 - t1 * t1 - t2 * t2))));
+
+    // Section 3.4: transforming the normal back to the ellipsoid configuration
+    return normalize({ x: alpha * Nh.x, y: Math.max(0.0, Nh.y), z: alpha * Nh.z });
+  }
+
+  private _evaluateFresnelSchlickSphericalGaussian(f0: Color, f90: number, NdotV: number): Color {
+    return cSum(
+      f0,
+      cMultiply(
+        cSum(cMultiply(f0, -1), { r: f90, g: f90, b: f90 }),
+        Math.pow(2, (-5.55473 * NdotV - 6.983146) * NdotV)));
+  }
+
+  private _baseColorToSpecularF0(baseColor: Color, metalness: number): Color {
+    return cLerp({ r: this.MIN_DIELECTRICS_F0, g: this.MIN_DIELECTRICS_F0, b: this.MIN_DIELECTRICS_F0 }, baseColor, metalness);
+  }
+
+  private _shadowedF90(F0: Color): number {
+    const t = (1.0 / this.MIN_DIELECTRICS_F0);
+    return Math.min(1.0, t * luminance(F0));
+  }
+
+  private _evalMicrofacet(alpha: number, alphaSquared: number, NdotL: number, NdotH: number, NdotV: number, F: Color): Color {
+    const D = this._GGXD(Math.max(0.00001, alphaSquared), NdotH);
+    const G2 = this._SmithG2HeightCorrelatedGGXLagarde(alphaSquared, NdotL, NdotV);
+    return cMultiply(F, (G2 * D * NdotL));
+  }
+
+  private _GGXD(alphaSquared: number, NdotH: number): number {
+    const b = ((alphaSquared - 1.0) * NdotH * NdotH + 1.0);
+    return Math.min(alphaSquared / (Math.PI * b * b), 10.0);
+  }
+
+  private _SmithG2HeightCorrelatedGGXLagarde(alphaSquared: number, NdotL: number, NdotV: number): number {
+    const a = NdotV * Math.sqrt(alphaSquared + NdotL * (NdotL - alphaSquared * NdotL));
+    const b = NdotL * Math.sqrt(alphaSquared + NdotV * (NdotV - alphaSquared * NdotV));
+    return 0.5 / (a + b);
+  }
+
+  private _SmithG2OverG1HeightCorrelated(alpha: number, alphaSquared: number, NdotL: number, NdotV: number): number {
+    const G1V = this._SmithG1GGX(alpha, NdotV, alphaSquared, NdotV * NdotV);
+    const G1L = this._SmithG1GGX(alpha, NdotL, alphaSquared, NdotL * NdotL);
+    return G1L / (G1V + G1L - G1V * G1L);
+  }
+
+  private _SmithG1GGX(alpha: number, NdotS: number, alphaSquared: number, NdotSSquared: number): number {
+    return 2.0 / (Math.sqrt(((alphaSquared * (1.0 - NdotSSquared)) + NdotSSquared) / NdotSSquared) + 1.0);
   }
 
   private _generateLightDirectionSample(light: DirectionalLight): Vector3 {

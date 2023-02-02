@@ -4,6 +4,7 @@ import { Color } from "./color.model";
 import { Dictionary } from "./dictionary.model";
 import { DirectionalLight } from "./directional-light.model";
 import { Plane } from "./plane.model";
+import { Roughness } from "./roughness.model";
 import { Sphere } from "./sphere.model";
 
 export interface Components {
@@ -13,4 +14,5 @@ export interface Components {
   spheres: Dictionary<Sphere>;
   colors: Dictionary<Color>;
   albedos: Dictionary<Albedo>;
+  roughnesses: Dictionary<Roughness>;
 }
