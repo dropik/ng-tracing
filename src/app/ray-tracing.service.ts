@@ -87,7 +87,7 @@ export class RayTracingService {
 
     for (const materialId in components.materials) {
       const material = components.materials[materialId];
-      material.diffuseReflectance = cMultiply(material.baseColor, 1.0 - material.metalness);
+      material.diffuseReflectance = cMultiply(material.baseColor, (1.0 - material.metalness) / Math.PI);
       material.alpha = material.roughness * material.roughness;
       material.alphaSquared = material.alpha * material.alpha;
       material.specularF0 = this._baseColorToSpecularF0(material.baseColor, material.metalness);
@@ -190,7 +190,7 @@ export class RayTracingService {
               { r: 1.0, g: 1.0, b: 1.0 },
               cMultiply(fresnelTerm, -1)
             ),
-            diffuseTerm
+            cMultiply(diffuseTerm, Math.PI)
           ),
           cProd(specularTerm, light.intensityMap)
         ));
@@ -207,26 +207,37 @@ export class RayTracingService {
       y: dot(v, hitNormal),
       z: dot(v, nb)
     }
-    const sampleH = this._generateGGXVNDFSample(vLocal, material.alpha);
-    const sampleWorldH = this._getWorldSample(sampleH, hitNormal, nt, nb);
-    const sampleWorldL = reflect(rayDirection, sampleWorldH);
+    let indirectResult: Color;
+    const samplingDescriminator = Math.random();
+    if (samplingDescriminator <= material.roughness) {
+      const diffuseSample = this._generateDiffuseSample();
+      const diffuseWorldSample = this._getWorldSample(diffuseSample, hitNormal, nt, nb);
+      const reflectedIntencity = this._castRay(hitPoint, diffuseWorldSample, planes, spheres, light, materials, bounce + 1);
 
-    const reflectedIntencity = this._castRay(hitPoint, sampleWorldL, planes, spheres, light, materials, bounce + 1);
-    const diffuseTerm = this._evaluateDiffuseBRDF(hitNormal, sampleWorldL, reflectedIntencity, diffuse);
-    const NdotL = clamp(dot(hitNormal, sampleWorldL), 0.00001, 1.0);
-    const LdotH = saturate(dot(sampleWorldL, sampleWorldH));
-    const fresnelTerm = this._evaluateFresnelSchlickSphericalGaussian(material.specularF0, material.shadowedF90, LdotH);
-    const specularTerm = cMultiply(fresnelTerm, this._SmithG2OverG1HeightCorrelated(material.alpha, material.alphaSquared, NdotL, NdotV));
+      const diffuseTerm = this._evaluateDiffuseBRDF(hitNormal, diffuseWorldSample, reflectedIntencity, diffuse);
+      indirectResult = cMultiply(diffuseTerm, this.PI_2);
+    } else {
+      const sampleH = this._generateGGXVNDFSample(vLocal, material.alpha);
+      const sampleWorldH = this._getWorldSample(sampleH, hitNormal, nt, nb);
+      const sampleWorldL = reflect(rayDirection, sampleWorldH);
 
-    const indirectResult = cSum(
-      cProd(
-        cSum(
-          { r: 1.0, g: 1.0, b: 1.0 },
-          cMultiply(fresnelTerm, -1)
+      const reflectedIntencity = this._castRay(hitPoint, sampleWorldL, planes, spheres, light, materials, bounce + 1);
+      const diffuseTerm = this._evaluateDiffuseBRDF(hitNormal, sampleWorldL, reflectedIntencity, diffuse);
+      const NdotL = clamp(dot(hitNormal, sampleWorldL), 0.00001, 1.0);
+      const LdotH = saturate(dot(sampleWorldL, sampleWorldH));
+      const fresnelTerm = this._evaluateFresnelSchlickSphericalGaussian(material.specularF0, material.shadowedF90, LdotH);
+      const specularTerm = cProd(cMultiply(fresnelTerm, this._SmithG2OverG1HeightCorrelated(material.alpha, material.alphaSquared, NdotL, NdotV)), reflectedIntencity);
+
+      indirectResult = cSum(
+        cProd(
+          cSum(
+            { r: 1.0, g: 1.0, b: 1.0 },
+            cMultiply(fresnelTerm, -1)
+          ),
+          cMultiply(diffuseTerm, Math.PI)
         ),
-        diffuseTerm
-      ),
-      cProd(specularTerm, reflectedIntencity));
+        specularTerm);
+    }
 
     result = cSum(result, indirectResult);
     return result;

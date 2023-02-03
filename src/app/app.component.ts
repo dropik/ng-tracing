@@ -58,7 +58,7 @@ export class AppComponent implements OnInit {
     const plane1Material: Material = {
       entityId: plane1Id,
       baseColor: clampColor({ r: 160, g: 160, b: 160 }),
-      roughness: 0.5,
+      roughness: 0.35,
       metalness: 0,
       alpha: 0,
       alphaSquared: 0,
@@ -84,7 +84,7 @@ export class AppComponent implements OnInit {
     const plane2Material: Material = {
       entityId: plane2Id,
       baseColor: clampColor({ r: 130, g: 10, b: 10 }),
-      roughness: 0.5,
+      roughness: 1,
       metalness: 0,
       alpha: 0,
       alphaSquared: 0,
@@ -110,7 +110,7 @@ export class AppComponent implements OnInit {
     const plane3Material: Material = {
       entityId: plane3Id,
       baseColor: clampColor({ r: 150, g: 150, b: 150 }),
-      roughness: 0.5,
+      roughness: 1,
       metalness: 0,
       alpha: 0,
       alphaSquared: 0,
@@ -162,7 +162,7 @@ export class AppComponent implements OnInit {
     const plane5Material: Material = {
       entityId: plane5Id,
       baseColor: clampColor({ r: 10, g: 210, b: 10 }),
-      roughness: 0.5,
+      roughness: 1,
       metalness: 0,
       alpha: 0,
       alphaSquared: 0,
@@ -175,11 +175,11 @@ export class AppComponent implements OnInit {
     this.components.materials[plane5Id] = plane5Material;
 
     const sphere1Id = this.guid();
-    const shpere1: Sphere = { entityId: sphere1Id, center: { x: 0, y: 0.2, z: 0.6 }, radius: 0.2, r2: 0 };
+    const sphere1: Sphere = { entityId: sphere1Id, center: { x: -0.35, y: 0.1, z: 0.25 }, radius: 0.1, r2: 0 };
     const sphere1Material: Material = {
       entityId: sphere1Id,
       baseColor: clampColor({ r: 180, g: 30, b: 20 }),
-      roughness: 0.5,
+      roughness: 1,
       metalness: 0,
       alpha: 0,
       alphaSquared: 0,
@@ -187,16 +187,33 @@ export class AppComponent implements OnInit {
       shadowedF90: 0,
       diffuseReflectance: { r: 0, g: 0, b: 0 },
     };
-    this.entities[sphere1Id] = { name: "Sphere Red" };
-    this.components.spheres[sphere1Id] = shpere1;
+    this.entities[sphere1Id] = { name: "Sphere 1" };
+    this.components.spheres[sphere1Id] = sphere1;
     this.components.materials[sphere1Id] = sphere1Material;
 
+    // const sphere4Id = this.guid();
+    // const sphere4: Sphere = { entityId: sphere4Id, center: { x: 0.1, y: 0.08, z: 0.1 }, radius: 0.08, r2: 0 };
+    // const sphere4Material: Material = {
+    //   entityId: sphere4Id,
+    //   baseColor: clampColor({ r: 100, g: 30, b: 120 }),
+    //   roughness: 1,
+    //   metalness: 0,
+    //   alpha: 0,
+    //   alphaSquared: 0,
+    //   specularF0: { r: 0, g: 0, b: 0 },
+    //   shadowedF90: 0,
+    //   diffuseReflectance: { r: 0, g: 0, b: 0 },
+    // };
+    // this.entities[sphere4Id] = { name: "Sphere Red" };
+    // this.components.spheres[sphere4Id] = sphere4;
+    // this.components.materials[sphere4Id] = sphere4Material;
+
     const sphere2Id = this.guid();
-    const shpere2: Sphere = { entityId: sphere2Id, center: { x: 0.45, y: 0.2, z: 0.6 }, radius: 0.2, r2: 0 };
+    const shpere2: Sphere = { entityId: sphere2Id, center: { x: 0.45, y: 0.15, z: 0.6 }, radius: 0.15, r2: 0 };
     const sphere2Material: Material = {
       entityId: sphere2Id,
       baseColor: clampColor({ r: 30, g: 50, b: 150 }),
-      roughness: 0,
+      roughness: 0.1,
       metalness: 0,
       alpha: 0,
       alphaSquared: 0,
@@ -204,12 +221,12 @@ export class AppComponent implements OnInit {
       shadowedF90: 0,
       diffuseReflectance: { r: 0, g: 0, b: 0 },
     };
-    this.entities[sphere2Id] = { name: "Sphere Blue" };
+    this.entities[sphere2Id] = { name: "Sphere 2" };
     this.components.spheres[sphere2Id] = shpere2;
     this.components.materials[sphere2Id] = sphere2Material;
 
     const sphere3Id = this.guid();
-    const shpere3: Sphere = { entityId: sphere3Id, center: { x: -0.45, y: 0.2, z: 0.6 }, radius: 0.2, r2: 0 };
+    const shpere3: Sphere = { entityId: sphere3Id, center: { x: -0.2, y: 0.17, z: 0.7 }, radius: 0.17, r2: 0 };
     const sphere3Material: Material = {
       entityId: sphere3Id,
       baseColor: clampColor({ r: 180, g: 180, b: 180 }),
@@ -221,9 +238,43 @@ export class AppComponent implements OnInit {
       shadowedF90: 0,
       diffuseReflectance: { r: 0, g: 0, b: 0 },
     };
-    this.entities[sphere3Id] = { name: "Sphere Metal" };
+    this.entities[sphere3Id] = { name: "Sphere Metal 1" };
     this.components.spheres[sphere3Id] = shpere3;
     this.components.materials[sphere3Id] = sphere3Material;
+
+    const sphere5Id = this.guid();
+    const sphere5: Sphere = { entityId: sphere5Id, center: { x: 0.2, y: 0.21, z: 1.2 }, radius: 0.21, r2: 0 };
+    const sphere5Material: Material = {
+      entityId: sphere5Id,
+      baseColor: clampColor({ r: 212, g: 175, b: 55 }),
+      roughness: 0,
+      metalness: 0.9,
+      alpha: 0,
+      alphaSquared: 0,
+      specularF0: { r: 0, g: 0, b: 0 },
+      shadowedF90: 0,
+      diffuseReflectance: { r: 0, g: 0, b: 0 },
+    };
+    this.entities[sphere5Id] = { name: "Sphere Metal 2" };
+    this.components.spheres[sphere5Id] = sphere5;
+    this.components.materials[sphere5Id] = sphere5Material;
+
+    const sphere6Id = this.guid();
+    const sphere6: Sphere = { entityId: sphere6Id, center: { x: 0.15, y: 0.06, z: 0.4 }, radius: 0.06, r2: 0 };
+    const sphere6Material: Material = {
+      entityId: sphere6Id,
+      baseColor: clampColor({ r: 30, g: 150, b: 30 }),
+      roughness: 0.7,
+      metalness: 0.9,
+      alpha: 0,
+      alphaSquared: 0,
+      specularF0: { r: 0, g: 0, b: 0 },
+      shadowedF90: 0,
+      diffuseReflectance: { r: 0, g: 0, b: 0 },
+    };
+    this.entities[sphere6Id] = { name: "Sphere 3" };
+    this.components.spheres[sphere6Id] = sphere6;
+    this.components.materials[sphere6Id] = sphere6Material;
 
     const lightId = this.guid();
     const light: DirectionalLight = {
@@ -250,8 +301,8 @@ export class AppComponent implements OnInit {
       sensorHeight: 24,
       focalLength: 50,
       focus: 1.5,
-      aperture: 1.4,
-      shutter: 2000,
+      aperture: 2.2,
+      shutter: 1600,
       iso: 200,
       lensArea: 0,
       lensRadius: 0,
